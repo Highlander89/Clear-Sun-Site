@@ -9,6 +9,8 @@ const nav = [
   { href: '/production', label: 'Production', icon: '📊' },
   { href: '/messages', label: 'Message Log', icon: '💬' },
   { href: '/alerts', label: 'Alerts', icon: '🔔' },
+  { href: '/logic', label: 'Sheet Logic', icon: '📐' },
+  { href: '/checklist', label: 'Month Checklist', icon: '✅' },
 ];
 
 export default function Sidebar() {
