@@ -11,6 +11,7 @@ const nav = [
   { href: '/alerts', label: 'Alerts', icon: '🔔' },
   { href: '/logic', label: 'Sheet Logic', icon: '📐' },
   { href: '/checklist', label: 'Month Checklist', icon: '✅' },
+  { href: '/reminders', label: 'Jobs & Reminders', icon: '⏰' },
 ];
 
 export default function Sidebar() {
