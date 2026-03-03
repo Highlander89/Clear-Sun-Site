@@ -10,6 +10,7 @@ const nav = [
   { href: '/messages', label: 'Message Log', icon: '💬' },
   { href: '/alerts', label: 'Alerts', icon: '🔔' },
   { href: '/logic', label: 'Sheet Logic', icon: '📐' },
+  { href: '/bulk-close-rules', label: 'Bulk Close Rules', icon: '📘' },
   { href: '/exceptions', label: 'Exceptions', icon: '⚠️' },
   { href: '/checklist', label: 'Month Checklist', icon: '✅' },
   { href: '/reminders', label: 'Jobs & Reminders', icon: '⏰' },
