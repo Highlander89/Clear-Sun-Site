@@ -28,9 +28,6 @@ function StatusBadge({ machine }: { machine: Machine }) {
 function MachineCard({ machine }: { machine: Machine }) {
   const fmt = (n: number | null | undefined) => n != null ? n.toLocaleString('en-ZA') : '—';
   return (
-    <div>
-      <a href="/exceptions" style={{display:'inline-block',marginBottom:12}}>Exceptions</a>
-
       <div className="bg-slate-800 border border-slate-700 rounded-xl p-4 shadow-lg hover:border-slate-600 transition-colors">
       <div className="flex items-start justify-between mb-3">
         <div>
@@ -124,6 +121,7 @@ export default function FleetPage() {
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-2xl font-bold text-slate-100">Fleet Status</h1>
+          <a href="/exceptions" className="text-xs text-slate-300 underline">Exceptions</a>
           <p className="text-slate-400 text-sm mt-1">
             {lastUpdated ? `Updated ${lastUpdated.toLocaleTimeString('en-ZA')}` : 'Loading...'}
             {!loading && ` · ${operational}/${machines.length} operational`}

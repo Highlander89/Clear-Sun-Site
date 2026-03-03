@@ -23,8 +23,8 @@ export default function ExceptionsPage() {
         const j = await r.json();
         if (!r.ok) throw new Error(j?.error || 'failed');
         setData(j);
-      } catch (e: any) {
-        setErr(e?.message || String(e));
+      } catch (e: unknown) {
+        setErr((e instanceof Error ? e.message : String(e)));
       }
     };
     load();
