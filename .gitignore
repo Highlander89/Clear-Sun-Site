@@ -1,0 +1,21 @@
+# dependencies/build
+**/node_modules/
+**/.next/
+
+# local state
+automation/auth_info_baileys/
+automation/.wwebjs_cache/
+automation/.pending-confirm.json
+automation/.sent-state.json
+automation/queue.jsonl
+automation/group-messages.log
+automation/enriched-messages.jsonl
+automation/daily-restart.log
+
+# secrets
+**/.env
+**/.env.*
+automation/clearsun.env
+
+# backups
+**/*.bak*
