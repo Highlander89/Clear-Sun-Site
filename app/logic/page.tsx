@@ -26,8 +26,8 @@ const sections = [
         detail: "Before parsing, text is normalized to reduce human formatting errors. Implemented in production bot:\n\n• Machine codes: GEN005 / gen-5 / GEN 5 → GEN 005 (also FEL/EXC/ADT/SCRN/DOZ; BULLD variants)\n• Thousands separators: 42 500 / 42,500 → 42500 (keeps decimal commas for loads like 0,5)\n\nThis runs before all parsers so it applies to diesel, dips, hours, loads, services, and fuel price messages."
       },
       {
-        label: "Planned: Confirmations on Risky Inputs",
-        detail: "Next hardening step: if a value is suspicious/ambiguous (out of expected range or multiple interpretations), bot will ask for OK/CORRECT <value> before writing. Normal, high-confidence messages still write immediately."
+        label: "Confirmations on Risky Inputs",
+        detail: "Implemented: for suspicious out-of-range values (fuel price, diesel dip, diesel issue), bot requires OK/CORRECT before writing. Normal values still write immediately."
       },
       { label: "Diesel Messages", detail: "Number adjacent to \"L\" or \"litres\" takes priority. Diesel ACCUMULATES — read existing F value and ADD (never overwrite)." },
       { label: "Service Messages", detail: "Keywords: \"service\", \"serviced\", \"250h\", \"500h\".\nWrites B=date, C=hours, D=next milestone to Services sheet.\nNEVER writes to E or F." },
