@@ -1,0 +1,16 @@
+node_modules/
+.auth_info_baileys/
+auth_info_baileys/
+.wwebjs_cache/
+group-messages.log
+enriched-messages.jsonl
+*.log
+.alert-state.json
+.digest-state.json
+
+# Secrets
+.env
+clearsun.env
+
+# Backups
+*.bak-*

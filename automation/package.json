@@ -1,0 +1,20 @@
+{
+  "name": "clearsun-wa",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "node test_enrichment.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.78.0",
+    "@hapi/boom": "^10.0.1",
+    "@whiskeysockets/baileys": "^7.0.0-rc.9",
+    "googleapis": "^171.4.0",
+    "pino": "^10.3.1",
+    "sharp": "^0.34.5"
+  }
+}

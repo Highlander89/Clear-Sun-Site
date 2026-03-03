@@ -1,0 +1,227 @@
+const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion } = require('@whiskeysockets/baileys');
+const { Boom } = require('@hapi/boom');
+const fs = require('fs');
+const path = require('path');
+const readline = require('readline');
+const { execFile } = require('child_process');
+
+const { enrich } = require('./enrichment');
+const { enqueue, isSent, markSent } = require('./queue');
+const { readJsonl, buildDailyDigest, shouldRunToday, markRanToday } = require('./digest');
+
+const TARGET_GROUP = process.env.TARGET_GROUP || '120363302362176212@g.us';
+const LOG_FILE = path.join(__dirname, 'group-messages.log');
+const ENRICHED_FILE = path.join(__dirname, 'enriched-messages.jsonl');
+const SESSION_DIR = path.join(__dirname, 'auth_info_baileys');
+const PHONE_NUMBER = process.env.PHONE_NUMBER || '27828558841'; // bot number without +
+const ALERT_TO = process.env.CLEARSUN_ALERT_TO || PHONE_NUMBER; // personal number to receive alerts/digest
+const DIGEST_HOUR = parseInt(process.env.DIGEST_HOUR || '17', 10); // 17:00 SAST default
+const ALERT_COOLDOWN_MIN = parseInt(process.env.ALERT_COOLDOWN_MIN || '30', 10);
+const ALERT_STATE_FILE = path.join(__dirname, '.alert-state.json');
+
+function log(msg) {
+    const line = `[${new Date().toISOString()}] ${msg}`;
+    console.log(line);
+    fs.appendFileSync(LOG_FILE, line + '\n');
+}
+
+
+function loadAlertState() {
+  try { return JSON.parse(fs.readFileSync(ALERT_STATE_FILE, 'utf8')) } catch { return {} }
+}
+
+function saveAlertState(s) {
+  fs.writeFileSync(ALERT_STATE_FILE, JSON.stringify(s, null, 2))
+}
+
+function logMessage(msg) {
+    const entry = {
+        ts: new Date().toISOString(),
+        from: msg.key.remoteJid,
+        sender: msg.key.participant || msg.key.remoteJid,
+        text: msg.message?.conversation || 
+              msg.message?.extendedTextMessage?.text || 
+              '[non-text]'
+    };
+    fs.appendFileSync(LOG_FILE, JSON.stringify(entry) + '\n');
+
+    // Enrichment
+    try {
+        const enriched = enrich(entry);
+        fs.appendFileSync(ENRICHED_FILE, JSON.stringify(enriched) + '\n');
+        return enriched;
+    } catch (e) {
+        log(`Enrichment error: ${e.message}`);
+        return null;
+    }
+}
+
+
+async function appendToSheets(enriched, msg) {
+  return new Promise((resolve, reject) => {
+    try {
+      const script = '/home/ubuntu/.openclaw/workspace/scripts/clearsun/clearsun_append_rawdata.sh';
+      const direction = 'inbound';
+      const fromName = enriched?.sender || '';
+      const fromNumber = enriched?.sender || '';
+      const text = enriched?.text || '';
+      const messageId = enriched?.message_id || '';
+      const conversationId = msg?.key?.remoteJid || '';
+
+      execFile(script, [direction, fromName, fromNumber, text, messageId, conversationId], { timeout: 30000 }, (err, stdout, stderr) => {
+        if (err) {
+          log(`Sheets append failed: ${err.message} ${stderr||''}`);
+          return reject(err);
+        }
+        if (stdout) log(stdout.trim());
+        return resolve(true);
+      });
+    } catch (e) {
+      log(`Sheets append error: ${e.message}`);
+      return reject(e);
+    }
+  })
+}
+
+async function connectToWhatsApp() {
+    const { state, saveCreds } = await useMultiFileAuthState(SESSION_DIR);
+    const { version } = await fetchLatestBaileysVersion();
+
+    const sock = makeWASocket({
+        version,
+        auth: state,
+        printQRInTerminal: false, // pairing code — no QR
+        logger: require('pino')({ level: 'silent' }),
+    });
+
+    // Pairing code flow — only on first run (no session yet)
+    if (!sock.authState.creds.registered) {
+        const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+        await new Promise(resolve => setTimeout(resolve, 2000)); // let socket settle
+        try {
+            const code = await sock.requestPairingCode(PHONE_NUMBER);
+            const formatted = code.match(/.{1,4}/g).join('-');
+            console.log('\n========================================');
+            console.log(`  PAIRING CODE: ${formatted}`);
+            console.log('  Enter this in WhatsApp > Linked Devices');
+            console.log('========================================\n');
+        } catch (e) {
+            console.error('Failed to get pairing code:', e.message);
+        }
+        rl.close();
+    }
+
+    sock.ev.on('creds.update', saveCreds);
+
+    // Optional one-shot test send (useful for proving WhatsApp → Sheets end-to-end)
+    let testSent = false;
+
+    sock.ev.on('connection.update', async ({ connection, lastDisconnect }) => {
+        if (connection === 'close') {
+            const reason = new Boom(lastDisconnect?.error)?.output?.statusCode;
+            log(`Connection closed. Reason: ${reason}`);
+            if (reason === DisconnectReason.loggedOut) {
+                log('Logged out — delete auth_info_baileys/ and restart to re-pair');
+                process.exit(1);
+            } else {
+                log('Reconnecting in 5s...');
+                setTimeout(connectToWhatsApp, 5000);
+            }
+        } else if (connection === 'open') {
+            log('✅ Connected to WhatsApp');
+
+            // Send a one-shot test message if requested via env
+            if (!testSent && process.env.SEND_TEST_ON_OPEN === '1') {
+                testSent = true;
+                try {
+                    const text = `TEST CLEAR SUN BOT ${new Date().toISOString()}`;
+                    await sock.sendMessage(TARGET_GROUP, { text });
+                    log(`✅ Sent test message to ${TARGET_GROUP}: ${text}`);
+                } catch (e) {
+                    log(`Test send failed: ${e.message}`);
+                }
+            }
+        }
+    });
+
+    function waJidFromNumber(num) {
+        const digits = (num || '').replace(/\D/g, '')
+        return `${digits}@s.whatsapp.net`
+    }
+
+    async function maybeSendUrgentAlert(enriched) {
+        if (!enriched) return
+        if (enriched.priority !== 'urgent' && enriched.priority !== 'high') return
+
+        // Cooldown to prevent alert spam on repeated messages
+        const state = loadAlertState()
+        const key = `${enriched.category}|${enriched.priority}`
+        const now = Date.now()
+        const last = state[key] || 0
+        if (now - last < ALERT_COOLDOWN_MIN * 60 * 1000) return
+
+        const jid = waJidFromNumber(ALERT_TO)
+        const text = `🚨 Clearsun Alert\n\n[${enriched.category}] (${enriched.priority})\n${enriched.text}\n\nFrom: ${enriched.sender}`
+        try {
+            await sock.sendMessage(jid, { text })
+            state[key] = now
+            saveAlertState(state)
+        } catch (e) {
+            log(`Alert send failed: ${e.message}`)
+        }
+    }
+
+    function startDailyDigestLoop() {
+        setInterval(async () => {
+            const now = new Date()
+            if (now.getHours() !== DIGEST_HOUR) return
+            if (now.getMinutes() !== 0) return
+            if (!shouldRunToday('dailyDigest')) return
+
+            const rows = readJsonl(ENRICHED_FILE)
+            const digest = buildDailyDigest(rows, now)
+            const jid = waJidFromNumber(ALERT_TO)
+            try {
+                await sock.sendMessage(jid, { text: digest })
+                markRanToday('dailyDigest')
+                log('✅ Daily digest sent')
+            } catch (e) {
+                log(`Daily digest send failed: ${e.message}`)
+            }
+        }, 60 * 1000)
+    }
+
+    sock.ev.on('messages.upsert', async ({ messages, type }) => {
+        if (type !== 'notify') return;
+        for (const msg of messages) {
+            if (msg.key.remoteJid === TARGET_GROUP && (process.env.ALLOW_FROM_ME === '1' || !msg.key.fromMe)) {
+                const enriched = logMessage(msg);
+                await maybeSendUrgentAlert(enriched)
+
+                // Durable queue: capture locally first, then attempt Sheets append.
+                try {
+                    if (enriched?.message_id && !isSent(enriched.message_id)) {
+                        enqueue({ enriched, direction: 'inbound', conversationId: msg?.key?.remoteJid || '' });
+                    }
+                } catch (e) {
+                    log(`Queue error: ${e.message}`);
+                }
+
+                try {
+                    await appendToSheets(enriched, msg)
+                    if (enriched?.message_id) markSent(enriched.message_id)
+                } catch (e) {
+                    // leave queued for replay
+                }
+            }
+        }
+    });
+
+    startDailyDigestLoop()
+}
+
+log('Starting Clearsun WhatsApp monitor (Baileys)...');
+connectToWhatsApp().catch(err => {
+    log(`Fatal error: ${err.message}`);
+    process.exit(1);
+});
