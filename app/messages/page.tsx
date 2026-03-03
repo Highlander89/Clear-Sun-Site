@@ -1,86 +1,84 @@
 "use client";
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 
-interface Message { ts: string; sender: string; text: string; category: string; priority: string; message_id?: string; }
+interface Msg { ts: string; sender: string; text: string; machine?: string; type?: string; }
+
+function TypeBadge({ type }: { type?: string }) {
+  const map: Record<string, string> = {
+    hours: 'bg-blue-600/20 text-blue-400 border-blue-600/40',
+    diesel: 'bg-amber-600/20 text-amber-400 border-amber-600/40',
+    service: 'bg-purple-600/20 text-purple-400 border-purple-600/40',
+    loads: 'bg-teal-600/20 text-teal-400 border-teal-600/40',
+    bulk: 'bg-indigo-600/20 text-indigo-400 border-indigo-600/40',
+    dip: 'bg-cyan-600/20 text-cyan-400 border-cyan-600/40',
+  };
+  const c = type ? (map[type] || 'bg-slate-700/50 text-slate-400 border-slate-600') : 'bg-slate-700/50 text-slate-400 border-slate-600';
+  return <span className={`text-xs px-2 py-0.5 rounded-full border ${c}`}>{type || 'other'}</span>;
+}
 
 export default function MessagesPage() {
-  const [messages, setMessages] = useState<Message[]>([]);
+  const [msgs, setMsgs] = useState<Msg[]>([]);
   const [loading, setLoading] = useState(true);
-  const [search, setSearch] = useState('');
+  const [filter, setFilter] = useState('');
+  const [lastRefresh, setLastRefresh] = useState<Date>(new Date());
 
-  useEffect(() => {
-    const load = () => fetch('/api/messages').then(r => r.json()).then(d => { setMessages(d); setLoading(false); }).catch(() => setLoading(false));
-    load();
-    const i = setInterval(load, 60000);
-    return () => clearInterval(i);
+  const load = useCallback(() => {
+    fetch('/api/messages?limit=100').then(r => r.json()).then(d => {
+      setMsgs((d.messages || []).reverse());
+      setLoading(false);
+      setLastRefresh(new Date());
+    }).catch(() => setLoading(false));
   }, []);
 
-  const filtered = messages.filter(m =>
-    !search || m.text?.toLowerCase().includes(search.toLowerCase()) || m.category?.toLowerCase().includes(search.toLowerCase())
-  );
+  useEffect(() => { load(); const t = setInterval(load, 30000); return () => clearInterval(t); }, [load]);
 
-  function categoryBadge(cat: string) {
-    const c = cat?.toUpperCase();
-    if (c === 'OPERATIONAL') return 'bg-emerald-900/50 text-emerald-400';
-    if (c === 'URGENT') return 'bg-red-900/50 text-red-400';
-    if (c === 'ADMIN') return 'bg-slate-700 text-slate-400';
-    return 'bg-slate-700 text-slate-400';
-  }
-
-  function fmtTs(ts: string) {
-    try {
-      const d = new Date(ts);
-      return d.toLocaleString('en-ZA', { timeZone: 'Africa/Johannesburg', day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
-    } catch { return ts; }
-  }
+  const filtered = filter ? msgs.filter(m =>
+    m.text?.toLowerCase().includes(filter.toLowerCase()) ||
+    m.machine?.toLowerCase().includes(filter.toLowerCase()) ||
+    m.type?.toLowerCase().includes(filter.toLowerCase())
+  ) : msgs;
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-5">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-slate-100">Message Log</h1>
-          <p className="text-slate-400 text-sm mt-1">{messages.length} messages · last 200</p>
+          <h1 className="text-2xl font-bold text-white">💬 Message Log</h1>
+          <p className="text-slate-400 mt-1 text-sm">Last 100 messages · Refreshes every 30s · {lastRefresh.toLocaleTimeString('en-ZA')}</p>
         </div>
+        <button onClick={load} className="text-xs text-slate-400 hover:text-white border border-slate-600 hover:border-slate-400 px-3 py-1.5 rounded-lg transition-colors">↺ Refresh</button>
       </div>
-      <input
-        type="text"
-        placeholder="Search messages..."
-        value={search}
-        onChange={e => setSearch(e.target.value)}
-        className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2.5 text-slate-100 placeholder-slate-500 focus:outline-none focus:border-emerald-500 text-sm"
-      />
-      <div className="bg-slate-800 border border-slate-700 rounded-xl overflow-hidden shadow-lg">
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead className="bg-slate-700 sticky top-0">
-              <tr>
-                <th className="px-4 py-3 text-left text-slate-300 font-medium">Time</th>
-                <th className="px-4 py-3 text-left text-slate-300 font-medium">Message</th>
-                <th className="px-4 py-3 text-left text-slate-300 font-medium">Category</th>
-              </tr>
-            </thead>
-            <tbody>
-              {loading ? [...Array(10)].map((_, i) => (
-                <tr key={i} className="border-t border-slate-700">
-                  {[...Array(3)].map((_, j) => <td key={j} className="px-4 py-3"><div className="h-4 bg-slate-700 rounded animate-pulse"></div></td>)}
-                </tr>
-              )) : filtered.length === 0 ? (
-                <tr><td colSpan={3} className="px-4 py-12 text-center text-slate-500">No messages found</td></tr>
-              ) : filtered.map((m, i) => (
-                <tr key={i} className={`border-t border-slate-700/50 ${i % 2 ? 'bg-slate-800/50' : ''}`}>
-                  <td className="px-4 py-3 text-slate-400 text-xs whitespace-nowrap font-mono">{fmtTs(m.ts)}</td>
-                  <td className="px-4 py-3 text-slate-200 max-w-md">
-                    <div className="truncate">{m.text || '—'}</div>
-                  </td>
-                  <td className="px-4 py-3">
-                    <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${categoryBadge(m.category)}`}>{m.category || 'UNKNOWN'}</span>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+
+      <div className="relative">
+        <input
+          type="text" value={filter} onChange={e => setFilter(e.target.value)}
+          placeholder="Filter by machine, type, or text..."
+          className="w-full bg-slate-800 border border-slate-700 text-slate-200 text-sm rounded-xl px-4 py-2.5 focus:outline-none focus:border-slate-500 placeholder-slate-500"
+        />
+        {filter && <button onClick={() => setFilter('')} className="absolute right-3 top-2.5 text-slate-500 hover:text-white text-sm">✕</button>}
+      </div>
+
+      {loading ? (
+        <div className="text-slate-400 py-12 text-center">Loading messages...</div>
+      ) : filtered.length === 0 ? (
+        <div className="text-slate-500 py-12 text-center">No messages {filter ? 'matching filter' : 'yet'}</div>
+      ) : (
+        <div className="space-y-2">
+          {filtered.map((m, i) => (
+            <div key={i} className="bg-slate-800/50 border border-slate-700 rounded-xl p-4 hover:border-slate-600 transition-colors">
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 mb-1.5 flex-wrap">
+                    <span className="text-xs text-slate-500 font-mono">{new Date(m.ts).toLocaleString('en-ZA', { timeZone: 'Africa/Johannesburg' })}</span>
+                    {m.machine && <span className="text-xs text-slate-300 font-medium bg-slate-700 px-2 py-0.5 rounded">{m.machine}</span>}
+                    <TypeBadge type={m.type} />
+                  </div>
+                  <pre className="text-slate-300 text-xs whitespace-pre-wrap break-words font-mono leading-relaxed">{m.text}</pre>
+                </div>
+              </div>
+            </div>
+          ))}
         </div>
-      </div>
+      )}
     </div>
   );
 }
