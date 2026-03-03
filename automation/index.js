@@ -45,7 +45,7 @@ const ENRICHED_FILE = path.join(__dirname, 'enriched-messages.jsonl');
 const SESSION_DIR = path.join(__dirname, 'auth_info_baileys');
 const PHONE_NUMBER = process.env.PHONE_NUMBER || '27828558841'; // bot number without +
 const ALERT_TO = process.env.CLEARSUN_ALERT_TO || PHONE_NUMBER; // personal number to receive alerts/digest
-const DIGEST_HOUR = parseInt(process.env.DIGEST_HOUR || '17', 10); // 17:00 SAST default
+const DIGEST_HOUR = parseInt(process.env.DIGEST_HOUR || '8', 10); // 17:00 SAST default
 const ALERT_COOLDOWN_MIN = parseInt(process.env.ALERT_COOLDOWN_MIN || '30', 10);
 const DISCONNECT_LOG = path.join(__dirname, 'disconnect-events.log');
 const ALERT_STATE_FILE = path.join(__dirname, '.alert-state.json');
@@ -744,7 +744,7 @@ connectToWhatsApp().catch(err => {
     process.exit(1);
 });
 
-// ── Service & Fuel Alert (17:00 SAST, injected into existing socket) ──────────
+// ── Service & Fuel Alert (08:00 SAST, injected into existing socket) ──────────
 async function buildServiceAlert() {
     const { google } = require('googleapis');
     const SHEET_ID = process.env.SHEET_ID || '1yd_Zd2akUwSNoN0pHH0qLsmAT7Mxg7Nw81qYIulD-W4';

@@ -105,7 +105,7 @@ const sections = [
       { label: "Service Intervals", detail: "250h for all machines EXCEPT BULLD12 = 500h.\nFixed milestones: 250, 500, 750, 1000, 1250...\nBULLD12: 500, 1000, 1500, 2000...\nNext service = Math.ceil(hours / interval) * interval" },
       { label: "Row Map", detail: "SCRN002=4, DOZ001=5, BULLD12=6\nFEL001=7, FEL002=8, FEL003=9, FEL004=10, FEL005=11\nADT001=12, ADT002=13, ADT003=14, ADT004=15, ADT005=16, ADT006=17\nEXC001=18, EXC002=19, EXC003=20, EXC004=21, EXC005=22\nGEN001=23, GEN002=24, GEN003=25, GEN004=26, GEN005=27\nHilux2.8=28, Hilux2.5=29" },
       { label: "Write Rules", detail: "Service event → writes ONLY B:D\nDaily closing message → updates E (current hours)\nF is always formula =D-E\nOCR (photo) overrides text approximation\nFormat C:F as plain numbers (not dates — prevents display bug)" },
-      { label: "Daily 17:00 Alert", detail: "Machines overdue (F < 0) → alert to WA group\nMachines ≤50h to service → warning\nFuel stock < 20,000L → alert" },
+      { label: "Daily 08:00 Alert", detail: "Machines overdue (F < 0) → alert to WA group\nMachines ≤50h to service → warning\nFuel stock < 20,000L → alert" },
     ],
   },
   {
