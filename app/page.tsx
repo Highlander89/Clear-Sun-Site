@@ -28,7 +28,10 @@ function StatusBadge({ machine }: { machine: Machine }) {
 function MachineCard({ machine }: { machine: Machine }) {
   const fmt = (n: number | null | undefined) => n != null ? n.toLocaleString('en-ZA') : '—';
   return (
-    <div className="bg-slate-800 border border-slate-700 rounded-xl p-4 shadow-lg hover:border-slate-600 transition-colors">
+    <div>
+      <a href="/exceptions" style={{display:'inline-block',marginBottom:12}}>Exceptions</a>
+
+      <div className="bg-slate-800 border border-slate-700 rounded-xl p-4 shadow-lg hover:border-slate-600 transition-colors">
       <div className="flex items-start justify-between mb-3">
         <div>
           <div className="font-bold text-slate-100 text-sm">{machine.code}</div>
