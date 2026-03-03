@@ -21,6 +21,14 @@ const sections = [
         detail: "Format: \"MACHINE closing_hours (next_service_due)\" per line, then load sections.\n\nExample:\n  FEL 001 3191 (3250)\n  ADT 002 4089 (4250)\n  QUARRY\n  ADT 002= 8\n  TAILINGS\n  ADT 006= 1\n  SCREEN MATERIAL\n  ADT 003 = 5\n\nFirst number = closing hours → D column\nBracketed number = next service milestone → Services!D",
       },
       { label: "Bulk Detection", detail: "3+ lines starting with machine codes (FEL/ADT/EXC/GEN/SCRN/BULLD) = bulk message." },
+      {
+        label: "Data Quality Layer (Normalization)",
+        detail: "Before parsing, text is normalized to reduce human formatting errors. Implemented in production bot:\n\n• Machine codes: GEN005 / gen-5 / GEN 5 → GEN 005 (also FEL/EXC/ADT/SCRN/DOZ; BULLD variants)\n• Thousands separators: 42 500 / 42,500 → 42500 (keeps decimal commas for loads like 0,5)\n\nThis runs before all parsers so it applies to diesel, dips, hours, loads, services, and fuel price messages."
+      },
+      {
+        label: "Planned: Confirmations on Risky Inputs",
+        detail: "Next hardening step: if a value is suspicious/ambiguous (out of expected range or multiple interpretations), bot will ask for OK/CORRECT <value> before writing. Normal, high-confidence messages still write immediately."
+      },
       { label: "Diesel Messages", detail: "Number adjacent to \"L\" or \"litres\" takes priority. Diesel ACCUMULATES — read existing F value and ADD (never overwrite)." },
       { label: "Service Messages", detail: "Keywords: \"service\", \"serviced\", \"250h\", \"500h\".\nWrites B=date, C=hours, D=next milestone to Services sheet.\nNEVER writes to E or F." },
       { label: "After-Midnight Rule", detail: "Messages 00:00–05:59 SAST → attributed to previous day." },
