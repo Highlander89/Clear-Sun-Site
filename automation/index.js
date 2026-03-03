@@ -47,6 +47,7 @@ const PHONE_NUMBER = process.env.PHONE_NUMBER || '27828558841'; // bot number wi
 const ALERT_TO = process.env.CLEARSUN_ALERT_TO || PHONE_NUMBER; // personal number to receive alerts/digest
 const DIGEST_HOUR = parseInt(process.env.DIGEST_HOUR || '17', 10); // 17:00 SAST default
 const ALERT_COOLDOWN_MIN = parseInt(process.env.ALERT_COOLDOWN_MIN || '30', 10);
+const DISCONNECT_LOG = path.join(__dirname, 'disconnect-events.log');
 const ALERT_STATE_FILE = path.join(__dirname, '.alert-state.json');
 
 
@@ -186,6 +187,11 @@ async function connectToWhatsApp() {
 
             lastDisconnectReason = reason;
             log(`Connection closed. Reason: ${reason} (disconnects_30m=${disconnectWindow.length})`);
+
+            try {
+                const line = JSON.stringify({ ts: new Date().toISOString(), reason, disconnects30m: disconnectWindow.length }) + '\n';
+                fs.appendFileSync(DISCONNECT_LOG, line);
+            } catch (e) { /* ignore */ }
 
             if (reason === DisconnectReason.loggedOut) {
                 log('Logged out — delete auth_info_baileys/ and restart to re-pair');

@@ -59,6 +59,7 @@ const BAKKIES_COL = {
   'vw bus': 3, 'vwbus': 3, 'vw': 3,
   'hino': 4, 'hino truck': 4,
   'hilux 2.8': 5, 'hilux2.8': 5, '2,8 hilux': 5, '2.8 hilux': 5,
+  'vw bus': 3, // Column D
 };
 
 function getSheets() {
@@ -180,24 +181,61 @@ function colLetter(idx) {
   return String.fromCharCode(64 + Math.floor(idx / 26)) + String.fromCharCode(65 + (idx % 26));
 }
 
+
+// ── SERVICES SHEET HELPERS ─────────────────────────────────────────────────
+let _servicesHeaderCache = { date: null };
+
+function formatServicesHeaderDate(sast) {
+  // match existing sheet style: "3 Mar 2026"
+  const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  return `${sast.getUTCDate()} ${months[sast.getUTCMonth()]} ${sast.getUTCFullYear()}`;
+}
+
+async function ensureServicesHeaderDate(sheets, sast) {
+  try {
+    const want = formatServicesHeaderDate(sast);
+    if (_servicesHeaderCache.date === want) return;
+    // Column E is the daily "current hours" column header.
+    const cur = await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: 'Services!E1' });
+    const have = (cur.data.values?.[0]?.[0] || '').toString().trim();
+    if (have !== want) {
+      await valuesUpdate(sheets, {
+        spreadsheetId: SHEET_ID,
+        range: 'Services!E1',
+        valueInputOption: 'RAW',
+        requestBody: { values: [[want]] }
+      });
+      console.log('[sheets_writer] Services!E1 header updated: ' + have + ' -> ' + want);
+    }
+    _servicesHeaderCache.date = want;
+  } catch (e) {
+    console.log('[sheets_writer] Services header update failed: ' + (e?.message || e));
+  }
+}
+
 // ── PARSERS ──────────────────────────────────────────────────────────────────
 
 // ── DATA QUALITY LAYER (normalization) ─────────────────────────────────────
 // Goal: make human formatting variations safe (spaces/commas in thousands, machine code spacing).
 function normalizeInputText(raw) {
   if (!raw) return raw;
-  let t = String(raw);
-  // normalize whitespace
-  t = t.replace(/ /g, ' ');
-  // normalize machine codes: GEN005 / gen-5 / GEN 5 => GEN 005
-  t = t.replace(/(gen|fel|exc|adt|scrn|doz)\s*[- ]?0*(\d{1,3})/gi, (_, p, n) => p.toUpperCase() + ' ' + String(n).padStart(3,'0'));
-  // bulld / bulld12 variants
-  t = t.replace(/(bulld)\s*[- ]?0*(\d{1,3})/gi, (_, p, n) => p.toUpperCase() + ' ' + String(n).padStart(2,'0'));
-  // normalize thousands separators: 42 500 / 42,500 => 42500 (but keep decimal commas like 42,5)
-  t = t.replace(/(\d{1,3})(?:[ ,](\d{3}))+/g, (m) => m.replace(/[ ,]/g, ''));
-  // collapse repeated spaces
-  t = t.replace(/\s+/g, ' ').trim();
-  return t;
+
+  // IMPORTANT: preserve newlines for bulk closing messages.
+  const lines = String(raw).replace(/\u00A0/g, ' ').split(/\n/);
+
+  const normLine = (t) => {
+    // machine codes: GEN005 / gen-5 / GEN 5 => GEN 005
+    t = t.replace(/\b(gen|fel|exc|adt|scrn|doz)\s*[- ]?0*(\d{1,3})\b/gi, (_, p, n) => p.toUpperCase() + ' ' + String(n).padStart(3, '0'));
+    // bulld variants
+    t = t.replace(/\b(bulld)\s*[- ]?0*(\d{1,3})\b/gi, (_, p, n) => p.toUpperCase() + ' ' + String(n).padStart(2, '0'));
+    // thousands separators: 42 500 / 42,500 => 42500 (do NOT touch leading-zero groups like 001 235)
+    t = t.replace(/\b([1-9]\d{0,2})(?:[ ,](\d{3}))+\b/g, (m) => m.replace(/[ ,]/g, ''));
+    // collapse repeated spaces (within a line)
+    t = t.replace(/\s+/g, ' ').trim();
+    return t;
+  };
+
+  return lines.map(normLine).join('\n').trim();
 }
 
 // ── DATA QUALITY LAYER (confirmations + sanity) ───────────────────────────
@@ -262,10 +300,26 @@ async function applyPendingItem(item, sheets, overrideValue) {
 async function handleConfirmationCommands(text, alertFn, sheets) {
   const state = purgePending(loadPending());
   const okM = text.match(/^OK\s+([a-f0-9]{8})$/i);
+  const implicitM = text.match(/^(?:no|nope|sorry|correction|correct)\b[\s\S]*?(\d+(?:[.,]\d+)?)\s*(?:litres?|liters?|l)\b/i);
   const corrM1 = text.match(/^CORRECT\s+([a-f0-9]{8})\s+([0-9]+(?:[.,][0-9]+)?)$/i);
   const corrM2 = text.match(/^CORRECT\s+([0-9]+(?:[.,][0-9]+)?)\s+([a-f0-9]{8})$/i);
 
-  if (!okM && !corrM1 && !corrM2) return false;
+  if (!okM && !corrM1 && !corrM2 && !implicitM) return false;
+  // Implicit correction: e.g. 'No its 235L' (no id)
+  if (implicitM) {
+    const now = Date.now();
+    const recent = (state.items || []).filter(it => it.type === 'diesel_issue' && (now - (it.createdAtMs || 0) < 30 * 60 * 1000));
+    if (recent.length === 1) {
+      const item = recent[0];
+      const override = parseFloat(implicitM[1].replace(',', '.'));
+      await applyPendingItem(item, sheets, override);
+      state.items = (state.items || []).filter(it => it.id !== item.id);
+      savePending(state);
+      if (alertFn) await alertFn('✅ Applied correction: diesel_issue = ' + override + ' (' + item.id + ')');
+      return true;
+    }
+  }
+
   const id = okM ? okM[1].toLowerCase() : (corrM1 ? corrM1[1].toLowerCase() : corrM2[2].toLowerCase());
   const item = (state.items || []).find(it => it.id === id);
   if (!item) {
@@ -426,6 +480,7 @@ async function applyFuelDip(sheets, sast, litres, alertFn) {
 async function processBulkMessage(text, sheets, sast) {
   const SHEET_ID = process.env.SHEET_ID || '1yd_Zd2akUwSNoN0qLsmAT7Mxg7Nw81qYIulD-W4';
   const row = 3 + sast.getUTCDate();
+  await ensureServicesHeaderDate(sheets, sast);
   const TAB_MAP_BULK = {
     'FEL 001':'RB Loader RB856 - FEL 001','FEL 002':'RB Loader ZL60 - FEL 002',
     'FEL 003':'Bell Loader - FEL 003','FEL 004':'RB Loader RB856 - FEL 004','FEL 005':'RB Loader RB856 - FEL 005',
@@ -454,12 +509,34 @@ async function processBulkMessage(text, sheets, sast) {
     if (/^QUARRY/i.test(lu)) { section = 'quarry'; continue; }
     if (/^TAILING/i.test(lu)) { section = 'tailings'; continue; }
     if (/SCREEN.?MAT|SRCEEN.?MAT/i.test(lu)) { section = 'screen'; continue; }
+    if (/^DIESEL\b/i.test(lu)) { section = 'diesel'; continue; }
+
+    if (section === 'diesel') {
+      const dCode = resolveMachine(line);
+      const dLitres = parseDieselMachine(line);
+      const dTab = dCode ? TAB_MAP[dCode] : null;
+      if (dCode && dLitres && dTab) {
+        let existing = 0;
+        try {
+          const cur = await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: "'" + dTab + "'!F" + row });
+          existing = parseFloat((cur.data.values?.[0]?.[0] || '').toString().replace(/[^0-9.-]/g, '')) || 0;
+        } catch(e) {}
+        await writeCell(sheets, dTab, 'F' + row, existing + dLitres);
+        written++;
+      }
+      continue;
+    }
 
     if (section === 'hours') {
       // Format: "FEL 001 3191 (3250)" — 3191=closing hours (D), 3250=next service due (Services!D)
-      const m = line.match(/^((?:FEL|ADT|EXC|GEN|SCRN|BULLD|DOZ)\s*\d{3}(?:\s*\d+)?)[\s:]+([\d,]+)(?:[\s\(]+([\d,]+))?/i);
+      const m = line.match(/^((?:(?:FEL|ADT|EXC|GEN|SCRN|DOZ)\s*\d{3}|BULLD\s*\d{1,3})(?:\s*\d+)?)[\s:]+([\d,]+)(?:[\s\(]+([\d,]+))?/i);
       if (!m) continue;
-      const code = m[1].replace(/\s+/g,' ').toUpperCase().trim();
+      let code = m[1].replace(/\s+/g,' ').toUpperCase().trim();
+      // Normalize BULLD 12 / BULLD12 / BULLD 1 => match TAB_MAP_BULK keys
+      if (/^BULLD\s*\d+$/i.test(code)) {
+        const n = parseInt(code.replace(/[^0-9]/g,''), 10);
+        code = 'BULLD ' + (n < 10 ? String(n).padStart(2,'0') : String(n));
+      }
       const closing = parseFloat(m[2].replace(/,/g,''));
       const nextSvc = m[3] ? parseFloat(m[3].replace(/,/g,'')) : null;
       const tab = TAB_MAP_BULK[code]; if (!tab) continue;
@@ -467,7 +544,30 @@ async function processBulkMessage(text, sheets, sast) {
       if (closing) { await writeCell(sheets, tab, 'D' + row, closing); await writeCell(sheets, tab, 'D35', closing); }
       const svcRow = SVC_ROW_BULK[code];
       if (svcRow) {
-        if (nextSvc) await writeCell(sheets, 'Services', 'D' + svcRow, nextSvc); // next service due
+        // Services sheet semantics:
+        // C = HOURS at last service, D = NEXT SERVICE HOURS, E = today's current hours.
+        // In the WhatsApp bulk close format, the bracket value is sometimes the *last service hours* (can be < closing).
+        if (nextSvc != null) {
+          if (closing != null && nextSvc < closing) {
+            // Treat as last-service hours; compute next due by interval.
+            const SVC_INTERVALS = {
+              BULLD12:500,
+              SCRN002:250, DOZ001:250,
+              FEL001:250, FEL002:250, FEL003:250, FEL004:250, FEL005:250,
+              ADT001:250, ADT002:250, ADT003:250, ADT004:250, ADT005:250, ADT006:250,
+              EXC001:250, EXC002:250, EXC003:250, EXC004:250, EXC005:250,
+              GEN001:250, GEN002:250, GEN003:250, GEN004:250, GEN005:250,
+            };
+            const key = code.replace(/\s+/g,'');
+            const interval = SVC_INTERVALS[key] || 250;
+            const nextDue = nextSvc + interval;
+            await writeCell(sheets, 'Services', 'C' + svcRow, nextSvc);
+            await writeCell(sheets, 'Services', 'D' + svcRow, nextDue);
+          } else {
+            // Treat as next service due
+            await writeCell(sheets, 'Services', 'D' + svcRow, nextSvc);
+          }
+        }
         if (closing) await writeCell(sheets, 'Services', 'E' + svcRow, closing); // current hours
       }
       written++;
@@ -475,15 +575,18 @@ async function processBulkMessage(text, sheets, sast) {
       // Load line: "ADT 002 = 8" or "ADT002= 8"
       const m = line.match(/^(ADT\s*\d{3})\s*(?:=|:)\s*([\d]+(?:[.,]\d+)?)/i);
       if (!m) continue;
-      const code = m[1].replace(/\s+/g,' ').toUpperCase().trim();
+      let code = m[1].replace(/\s+/g,' ').toUpperCase().trim();
+      // Normalize BULLD 12 / BULLD12 / BULLD 1 => match TAB_MAP_BULK keys
+      if (/^BULLD\s*\d+$/i.test(code)) {
+        const n = parseInt(code.replace(/[^0-9]/g,''), 10);
+        code = 'BULLD ' + (n < 10 ? String(n).padStart(2,'0') : String(n));
+      }
       const val = parseFloat(m[2].replace(',', '.')); // supports half loads like 0,5
       const tab = TAB_MAP_BULK[code];
       if (!tab || val == null || Number.isNaN(val)) continue;
       // H=Quarry, I=Stripping, J=Screen to Plant, K=Tailings, L=Concentrate(ADT006 only)
       // L is a Tons formula for ADT001-005 — never write to it
-      const col = section === 'quarry' ? 'H' : section === 'tailings' ? 'K' : section === 'concentrate' ? 'L' : 'J';
-      // Skip L writes for non-ADT006 machines (it's a formula there)
-      if (col === 'L' && code !== 'ADT 006') continue;
+      const col = section === 'quarry' ? 'H' : section === 'tailings' ? 'K' : 'J';
       await writeCell(sheets, tab, col + row, val);
       written++;
     }
@@ -493,7 +596,7 @@ async function processBulkMessage(text, sheets, sast) {
 
 function isBulkMessage(text) {
   const lines = text.split(/\n/).filter(l => l.trim());
-  const hourLines = lines.filter(l => /^(FEL|ADT|EXC|GEN|SCRN|BULLD)\s*\d{3}/i.test(l.trim()));
+  const hourLines = lines.filter(l => /^(FEL|ADT|EXC|GEN|SCRN|DOZ)\s*\d{3}/i.test(l.trim()) || /^BULLD\s*\d{1,3}/i.test(l.trim()));
   return hourLines.length >= 3; // 3+ machine lines = bulk message
 }
 
@@ -505,6 +608,7 @@ async function writeMessageToSheets(enriched, rawText, alertFn) {
   const sast = getSASTDate(ts);
   const row = dayRow(sast);
   const sheets = getSheets();
+  await ensureServicesHeaderDate(sheets, sast);
 
   // Confirmation commands (OK/CORRECT)
   if (await handleConfirmationCommands(text, alertFn, sheets)) return;
@@ -699,7 +803,7 @@ async function writeMessageToSheets(enriched, rawText, alertFn) {
 
   // Diesel — accumulate (add to existing value if already written today)
   // Accept bare litre lines like 'BULLD 12 1007 L' as diesel, to reduce operator friction.
-  const looksLikeBareLitres = /\b\d+\s*[Ll](?:itres?|iters?)?\b/.test(norm) && /^\s*(?:FEL|ADT|EXC|GEN|SCRN|BULLD|DOZ)\s*\d{3}/i.test(text) && !/\(\s*\d+\s*\)/.test(text);
+  const looksLikeBareLitres = !/\n/.test(text) && /\b\d+\s*[Ll](?:itres?|iters?)?\b/.test(norm) && /^\s*(?:FEL|ADT|EXC|GEN|SCRN|BULLD|DOZ)\s*\d{3}/i.test(text) && !/\(\s*\d+\s*\)/.test(text);
   if (/diesel|fuel|liter|litre/i.test(norm) || looksLikeBareLitres) {
     // Multi-line diesel: check if OTHER machines appear in this message too
     // e.g. "DIESEL\nGEN 005 141L\nFEL 004 203L" — write each machine independently

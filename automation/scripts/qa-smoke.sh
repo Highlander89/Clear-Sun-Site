@@ -25,8 +25,8 @@ mkdir -p "$OUT_DIR"
 
   echo
   echo "## Dashboard quick health"
-  curl -sS -I --max-time 10 http://51.20.84.35:3002 | head -5
-  curl -sS --max-time 10 http://51.20.84.35:3002/api/health | head -c 300; echo
+  curl -sS -I --max-time 20 http://51.20.84.35:3002 | head -5
+  curl -sS --max-time 20 http://51.20.84.35:3002/api/health | head -c 300; echo
 
   echo
   echo "## Queue summary"
