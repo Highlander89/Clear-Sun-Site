@@ -4,6 +4,7 @@
 const fs = require('fs');
 const path = require('path');
 const { google } = require('googleapis');
+const { auditLog } = require('./audit_log');
 
 const SHEET_ID = process.env.SHEET_ID || '1yd_Zd2akUwSNoN0pHH0qLsmAT7Mxg7Nw81qYIulD-W4';
 const TOKEN_PATH = '/home/ubuntu/.openclaw/workspace/scripts/clearsun/token.json';
@@ -358,6 +359,7 @@ async function applyPendingItem(item, sheets, overrideValue, options = {}) {
     if (item.type === 'fuel_price') {
       await appendToRawData('CORRECTION', 'FuelPrice', 'K2', oldValue, val, messageId, conversationId);
     }
+    try { auditLog({ kind: 'message', messageId: options?.messageId, conversationId: options?.conversationId, rawText, summary: 'processed', actions: _auditActions }); } catch(e) {}
     return;
   }
   if (item.op === 'fuel_dip') {
@@ -771,6 +773,7 @@ async function writeMessageToSheets(enriched, rawText, alertFn, options = {}) {
   const sast = getSASTDate(ts);
   const row = dayRow(sast);
   const sheets = getSheets();
+  const _auditActions = [];
   await ensureServicesHeaderDate(sheets, sast);
 
   const messageId = enriched?.message_id || options?.messageId || '';
@@ -789,6 +792,7 @@ async function writeMessageToSheets(enriched, rawText, alertFn, options = {}) {
       const errorMsg = '⚠️ Bulk close format error: ' + validation.errors.join('; ') + '. Raw data logged, no writes performed.';
       console.log('[sheets_writer] BULK VALIDATION FAILED: ' + validation.errors.join('; '));
       
+      auditLog({ kind: 'bulk_invalid', messageId: options?.messageId, conversationId: options?.conversationId, rawText, summary: validation.errors.join('; ') });
       await appendInvalidBulkClose(
         rawText, 
         validation.errors.join('; '), 

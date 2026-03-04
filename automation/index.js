@@ -36,6 +36,7 @@ function dedupeCheck(sender, text, tsMs) {
 // ── End M1 ─────────────────────────────────────────────────────────────────
 
 const { enrich } = require('./enrichment');
+const { auditLog } = require('./audit_log');
 const { enqueue, isSent, markSent, rateLimitedAppend } = require('./queue');
 const { readJsonl, buildDailyDigest, shouldRunToday, markRanToday } = require('./digest');
 
@@ -616,6 +617,44 @@ Bot is currently connected again.`;
             }
         }
 
+        
+
+        const TEMPLATES_FILE = path.join(__dirname, '.post-templates-now')
+        if (fs.existsSync(TEMPLATES_FILE)) {
+            fs.unlinkSync(TEMPLATES_FILE)
+            const msg = `*Templates (copy/paste)*
+
+*Bulk Close*
+FEL 001 0000 (0000)
+ADT 002 0000 (0000)
+...
+
+*Loads*
+QUARRY
+ADT 002= 0
+Tailings
+ADT 002= 0
+SCREEN MATERIAL
+ADT 002= 0
+
+*Diesel*
+DIESEL
+FEL 003 172L
+
+*Corrections*
+CORRECT DIESEL FEL003 172
+CORRECT HOURS ADT002 4095
+CORRECT LOADS QUARRY ADT002 20
+CORRECT SERVICE GEN002 LAST 5750`;
+            try {
+                await sock.sendMessage(TARGET_GROUP, { text: msg })
+                try { auditLog({ kind: 'operator_action', summary: 'postTemplates', result: { ok: true } }); } catch(e) {}
+                log('✅ Templates posted to group')
+            } catch (e) {
+                log('Template post error: ' + e.message)
+            }
+        }
+
         // File-based manual alert trigger
         const TRIGGER_FILE = path.join(__dirname, '.send-alert-now')
         if (fs.existsSync(TRIGGER_FILE)) {
@@ -649,7 +688,8 @@ Bot is currently connected again.`;
                     };
                     saveAlertState(state);
                     
-                    log('✅ Service/fuel alert sent to group')
+                    log('✅ Service/fuel alert sent to group');
+                    try { auditLog({ kind: 'reminder_sent', summary: 'dailyServiceAlert', result: state['lastServiceAlertSent'] }); } catch(e) {}
                 } catch (e) {
                     log('Service alert error: ' + e.message)
                 }
