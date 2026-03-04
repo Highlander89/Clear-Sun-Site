@@ -16,6 +16,50 @@
 
 ---
 
+## Quick Start: Day-in-the-Life Checklist (1 page)
+
+### Morning (06:30–08:10 SAST)
+1) **Check the dashboard is reachable**
+   - Open: `/alerts`
+   - Confirm it shows data (not stuck loading).
+2) **Confirm the 08:00 Service/Fuel alert was sent**
+   - On `/alerts`: check **Last service alert sent** is today.
+   - If not sent by ~08:05, use `/operator` → **Send 08:00 alert now**.
+3) **Scan for urgent exceptions**
+   - Open: `/exceptions`
+   - If you see “next due < current hours” / negative hours-to-service: notify supervisor (usually Services sheet needs correction).
+
+### During the day (anytime data comes in)
+4) **Post production updates in the WhatsApp group**
+   - Prefer one message per shift (or the approved bulk format).
+   - If the bot asks to confirm, reply with **OK <id>** or **CORRECT <id> <value>**.
+5) **If a bulk closing message fails**
+   - The bot will reply with an error.
+   - Fix the message format and resend.
+   - Do *not* try to “force it”; invalid bulk closes are intentionally blocked from writing to machine tabs.
+
+### End of day (15:00–17:00 SAST)
+6) **Sanity-check the numbers landed**
+   - Open `/production` and `/fuel`.
+   - Spot-check at least 1–2 machines in the Sheet if something looks off.
+7) **If you must correct something**
+   - Use the dashboard correction endpoint (or supervisor process) so it creates an audit trail.
+   - Then confirm the correction reflects in `/audit` (and RawData row appended).
+
+### If something looks wrong (triage)
+8) **Use `/audit` to understand what the bot did**
+   - Find the message row; see the parsed actions + exact writes.
+9) **Use `/operator` tools**
+   - Run **Drift-check** if rules vs dashboard seem inconsistent.
+   - Run **QA smoke** after changes/restarts.
+
+### Monthly / when the month rolls over
+10) **Expect hours/month-total cells to shift**
+   - Month boundaries can affect summary cells.
+   - If dashboard totals look wrong on the 1st/2nd, escalate (sheet formulas and month rollups are the usual culprit).
+
+---
+
 ## 1) Business process (human workflow)
 
 ### 1.1 What the operators send daily
