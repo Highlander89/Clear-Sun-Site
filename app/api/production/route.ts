@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { getSheets, TAB_MAP, ADT_MACHINES, ADT_PAYLOADS, parseNum } from '@/app/lib/sheets';
+import { getSheets, TAB_MAP, ADT_PAYLOADS, parseNum } from '@/app/lib/sheets';
 
 export async function GET() {
   try {

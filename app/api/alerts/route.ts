@@ -1,5 +1,8 @@
 import { NextResponse } from 'next/server';
 import { getSheets, parseNum } from '@/app/lib/sheets';
+import fs from 'fs';
+
+const ALERT_STATE_FILE = '/home/ubuntu/clearsun-wa/.alert-state.json';
 
 export async function GET() {
   try {
@@ -22,7 +25,14 @@ export async function GET() {
     const fuelAlerts = stock !== null && stock < 20000
       ? [{ type: 'fuel', severity: 'critical', message: `Low fuel: ${stock.toLocaleString('en-ZA')}L remaining`, stockOnHand: stock }]
       : [];
-    return NextResponse.json({ serviceAlerts, fuelAlerts, totalCount: serviceAlerts.length + fuelAlerts.length });
+    
+    let lastServiceAlertSent = null;
+    try {
+      const alertState = JSON.parse(fs.readFileSync(ALERT_STATE_FILE, 'utf8'));
+      lastServiceAlertSent = alertState.lastServiceAlertSent || null;
+    } catch {}
+    
+    return NextResponse.json({ serviceAlerts, fuelAlerts, totalCount: serviceAlerts.length + fuelAlerts.length, lastServiceAlertSent });
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e);
     return NextResponse.json({ error: msg }, { status: 500 });
