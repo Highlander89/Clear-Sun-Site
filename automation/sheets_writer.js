@@ -59,11 +59,16 @@ const ALIASES = {
 // Bakkies vehicle → column index (0-based from A)
 const BAKKIES_COL = {
   'hilux 2.5': 1, 'hilux2.5': 1, '2.5 hilux': 1,
+
+  // 3.0 Hilux
   'hilux 3l': 2, 'hilux 3.0': 2, 'hilux3l': 2, 'hilux3.0': 2,
+  '3l hilux': 2, '3.0 hilux': 2,
+
+  // 2.8 Hilux
+  'hilux 2.8': 5, 'hilux2.8': 5, '2,8 hilux': 5, '2.8 hilux': 5,
+
   'vw bus': 3, 'vwbus': 3, 'vw': 3,
   'hino': 4, 'hino truck': 4,
-  'hilux 2.8': 5, 'hilux2.8': 5, '2,8 hilux': 5, '2.8 hilux': 5,
-  'vw bus': 3, // Column D
 };
 
 function getSheets() {
@@ -463,8 +468,9 @@ function parseDieselBakkies(text) {
   const norm = text.toLowerCase();
   for (const [vehicle, colIdx] of Object.entries(BAKKIES_COL)) {
     if (norm.includes(vehicle)) {
-      // Must grab number adjacent to L/litres — avoid matching vehicle size (2.5, 2.8, 3.0)
-      const m = text.match(/(\d+(?:[.,]\d+)?)\s*(?:litres?|liters?|l)/i)
+      // Must grab litres, not the engine size (e.g. "3L Hilux 57L" should pick 57, not 3).
+      const m = text.match(/(\d{2,}(?:[.,]\d+)?)\s*(?:litres?|liters?|l)\b/i)
+              || text.match(/(?:litres?|liters?|l)\s*(\d{2,}(?:[.,]\d+)?)/i)
               || text.match(/(\d{2,})/); // fallback: first 2+ digit number
       if (m) return { colIdx, litres: parseFloat(m[1].replace(',', '.')) };
     }
