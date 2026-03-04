@@ -139,14 +139,15 @@ function saveAlertState(s) {
   fs.writeFileSync(ALERT_STATE_FILE, JSON.stringify(s, null, 2))
 }
 
-function logMessage(msg) {
+function logMessage(msg, meta = {}) {
     const entry = {
         ts: new Date().toISOString(),
         from: msg.key.remoteJid,
         sender: msg.key.participant || msg.key.remoteJid,
         text: msg.message?.conversation || 
               msg.message?.extendedTextMessage?.text || 
-              '[non-text]'
+              '[non-text]',
+        dedupeHash: meta.dedupeHash || null,
     };
     fs.appendFileSync(LOG_FILE, JSON.stringify(entry) + '\n');
 
@@ -162,8 +163,14 @@ function logMessage(msg) {
             ts: enriched.ts,
             messageId: enriched.message_id,
             conversationId: entry.from,
+            threadKey: entry.from && enriched.message_id ? `${entry.from}|${enriched.message_id}` : null,
+            dedupeHash: entry.dedupeHash,
             rawText: enriched.text,
             summary: 'received from WhatsApp',
+            parsed: {
+              sender: entry.sender,
+              sastDate: new Date(new Date(enriched.ts).toLocaleString('en-US', { timeZone: 'Africa/Johannesburg' })).toISOString().slice(0, 10),
+            },
           });
         } catch (e) {}
 
@@ -744,7 +751,7 @@ CORRECT SERVICE GEN002 LAST 5750`;
                     log(`[DEDUP] dropped duplicate hash=${_dedup.hash.substring(0,12)} from=${_msgSender}`);
                     continue;
                 }
-                const enriched = logMessage(msg);
+                const enriched = logMessage(msg, { dedupeHash: _dedup.hash });
                 await maybeSendUrgentAlert(enriched)
 
                 // Durable queue: capture locally first, then attempt Sheets append.
@@ -811,9 +818,34 @@ CORRECT SERVICE GEN002 LAST 5750`;
                     const { writeMessageToSheets } = require('./sheets_writer');
                     const rawText = msg.message?.conversation || msg.message?.extendedTextMessage?.text || '';
                     const alertFn = async (alertMsg) => {
-                        try { await sock.sendMessage(TARGET_GROUP, { text: alertMsg }); } catch(e) {}
+                        try {
+                          await sock.sendMessage(TARGET_GROUP, { text: alertMsg });
+                          try {
+                            auditLog({
+                              kind: 'wa_reply',
+                              ts: new Date().toISOString(),
+                              messageId: msgId,
+                              conversationId: msg?.key?.remoteJid || '',
+                              threadKey: (msg?.key?.remoteJid && msgId) ? `${msg.key.remoteJid}|${msgId}` : null,
+                              waReply: { to: 'group', status: 'sent', text: alertMsg },
+                              summary: 'reply sent to WhatsApp group',
+                            });
+                          } catch (e) {}
+                        } catch(e) {
+                          try {
+                            auditLog({
+                              kind: 'wa_reply',
+                              ts: new Date().toISOString(),
+                              messageId: msgId,
+                              conversationId: msg?.key?.remoteJid || '',
+                              threadKey: (msg?.key?.remoteJid && msgId) ? `${msg.key.remoteJid}|${msgId}` : null,
+                              waReply: { to: 'group', status: 'failed', text: alertMsg, error: e?.message || String(e) },
+                              summary: 'reply failed',
+                            });
+                          } catch (e2) {}
+                        }
                     };
-                    const _swResult = await writeMessageToSheets(enriched, rawText, alertFn, { messageId: msgId, conversationId: msg?.key?.remoteJid || '' });
+                    const _swResult = await writeMessageToSheets(enriched, rawText, alertFn, { messageId: msgId, conversationId: msg?.key?.remoteJid || '', dedupeHash: _dedup.hash });
                     // Only mark sent if write succeeded (not explicitly false/undefined-from-empty)
                     if (msgId && _swResult !== false) markSent('sw:' + msgId);
                     else if (_swResult === false) log('[sheets_writer] WRITE FAILED — not marking sent, will retry on next message');

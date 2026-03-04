@@ -830,16 +830,38 @@ async function writeMessageToSheets(enriched, rawText, alertFn, options = {}) {
   const sast = getSASTDate(ts);
   const row = dayRow(sast);
   const sheets = getSheets();
-  const _auditActions = [];
-  await ensureServicesHeaderDate(sheets, sast);
-
   const messageId = enriched?.message_id || options?.messageId || '';
   const conversationId = enriched?.conversationId || options?.conversationId || '';
 
-  // Confirmation commands (OK/CORRECT)
-  if (await handleConfirmationCommands(text, alertFn, sheets, { messageId, conversationId })) return;
+  const parsedBase = {
+    sastDate: getSASTDateStr(ts),
+    dayRow: row,
+  };
 
-  const norm = text.toLowerCase();
+  return _auditALS.run({ actions: [], auditId: makeConfirmId({ type: 'audit', range: String(messageId || ''), value: 0, op: 'msg' }) }, async () => {
+    const store = _auditALS.getStore();
+    const auditId = store?.auditId || null;
+
+    await ensureServicesHeaderDate(sheets, sast);
+
+    // Confirmation commands (OK/CORRECT)
+    if (await handleConfirmationCommands(text, alertFn, sheets, { messageId, conversationId })) {
+      auditLog({
+        kind: 'wa_decision',
+        auditId,
+        messageId,
+        conversationId,
+        threadKey: conversationId && messageId ? `${conversationId}|${messageId}` : null,
+        dedupeHash: options?.dedupeHash || null,
+        rawText,
+        parsed: { ...parsedBase, type: 'confirmation' },
+        decision: { status: 'written', reasonCode: 'CONFIRMATION_COMMAND', reasonDetail: 'OK/CORRECT processed' },
+        actions: store?.actions || [],
+      });
+      return;
+    }
+
+    const norm = text.toLowerCase();
 
   // ── BULK MULTI-MACHINE MESSAGE ────────────────────────────────────────────
   if (isBulkMessage(text)) {
@@ -1111,6 +1133,13 @@ async function writeMessageToSheets(enriched, rawText, alertFn, options = {}) {
     }
     return;
   }
+
+  // If we got here, we parsed nothing actionable.
+  try {
+    const store = _auditALS.getStore();
+    auditLog({ kind: 'wa_decision', auditId: store?.auditId || null, messageId, conversationId, threadKey: conversationId && messageId ? `${conversationId}|${messageId}` : null, dedupeHash: options?.dedupeHash || null, rawText, parsed: { ...parsedBase, type: 'unknown' }, decision: { status: 'ignored', reasonCode: 'NO_MATCHING_PARSER', reasonDetail: 'no parser matched message' }, actions: store?.actions || [] });
+  } catch (e) {}
+});
 }
 
 module.exports = { 
