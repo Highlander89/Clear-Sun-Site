@@ -44,9 +44,50 @@ export default function AuditPage() {
 
       {err && <pre style={{ color: 'crimson' }}>{err}</pre>}
 
-      <div style={{ display: 'flex', gap: 10, margin: '12px 0' }}>
-        <button onClick={load} style={{ padding: '8px 10px', borderRadius: 8, border: '1px solid #111827', background: '#fff' }}>Refresh</button>
-        <a href="/operator" style={{ padding: '8px 10px', borderRadius: 8, border: '1px solid #111827', background: '#fff', display: 'inline-block' }}>Operator Mode</a>
+      <div style={{ display: 'flex', gap: 10, margin: '12px 0', flexWrap: 'wrap' }}>
+        <button
+          onClick={load}
+          style={{
+            padding: '8px 12px',
+            borderRadius: 10,
+            border: '1px solid #334155',
+            background: '#0f172a',
+            color: '#e2e8f0',
+            fontWeight: 700,
+          }}
+        >
+          Refresh
+        </button>
+        <a
+          href="/operator"
+          style={{
+            padding: '8px 12px',
+            borderRadius: 10,
+            border: '1px solid #334155',
+            background: '#0f172a',
+            color: '#e2e8f0',
+            fontWeight: 700,
+            display: 'inline-block',
+            textDecoration: 'none',
+          }}
+        >
+          Operator Mode
+        </a>
+        <a
+          href="/api/audit?limit=1000"
+          style={{
+            padding: '8px 12px',
+            borderRadius: 10,
+            border: '1px solid #334155',
+            background: '#0f172a',
+            color: '#e2e8f0',
+            fontWeight: 700,
+            display: 'inline-block',
+            textDecoration: 'none',
+          }}
+        >
+          Download JSON
+        </a>
       </div>
 
       <div style={{ display: 'grid', gap: 10 }}>

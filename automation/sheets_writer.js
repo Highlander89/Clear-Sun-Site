@@ -5,6 +5,8 @@ const fs = require('fs');
 const path = require('path');
 const { google } = require('googleapis');
 const { auditLog } = require('./audit_log');
+const { AsyncLocalStorage } = require('async_hooks');
+const _auditALS = new AsyncLocalStorage();
 
 const SHEET_ID = process.env.SHEET_ID || '1yd_Zd2akUwSNoN0pHH0qLsmAT7Mxg7Nw81qYIulD-W4';
 const TOKEN_PATH = '/home/ubuntu/.openclaw/workspace/scripts/clearsun/token.json';
@@ -190,7 +192,23 @@ async function sheetsWriteCall(label, fn) {
 }
 
 async function valuesUpdate(sheets, params, label) {
-  return sheetsWriteCall(label || params?.range || 'values.update', () => sheets.spreadsheets.values.update(params));
+  const store = _auditALS.getStore();
+  const range = params?.range;
+  const values = params?.requestBody?.values;
+  const valueInputOption = params?.valueInputOption;
+
+  // Record intent (even for non-machine writes like Services/Production Summary)
+  if (store?.actions && range) {
+    store.actions.push({
+      kind: 'values.update',
+      range,
+      values,
+      valueInputOption,
+      label: label || null,
+    });
+  }
+
+  return sheetsWriteCall(label || range || 'values.update', () => sheets.spreadsheets.values.update(params));
 }
 
 function dayRow(sast) {
@@ -217,12 +235,14 @@ async function readCell(sheets, tab, cell) {
 }
 
 async function writeCell(sheets, tab, cell, value, options = {}) {
-  const { skipIdempotency = false, opType, machine, dateStr } = options;
+  const { skipIdempotency = false, opType, machine, dateStr, why } = options;
+  const store = _auditALS.getStore();
   
   if (!skipIdempotency && opType && machine && dateStr) {
     const check = checkIdempotency(opType, machine, dateStr, cell);
     if (check.alreadyWritten && String(check.existingValue) === String(value)) {
       console.log('[sheets_writer] SKIP (idempotent) ' + tab + '!' + cell + ' = ' + value);
+    if (store?.actions) store.actions.push({ kind: 'writeCell', range: tab + '!' + cell, value, opType, machine, dateStr, written: false, reason: 'idempotent', why: why || null });
       return false;
     }
   }
@@ -230,6 +250,7 @@ async function writeCell(sheets, tab, cell, value, options = {}) {
   const existing = await readCell(sheets, tab, cell);
   if (existing !== null && existing !== '' && String(existing) === String(value)) {
     console.log('[sheets_writer] SKIP (dupe) ' + tab + '!' + cell + ' = ' + value);
+    if (store?.actions) store.actions.push({ kind: 'writeCell', range: tab + '!' + cell, value, opType, machine, dateStr, written: false, reason: 'dupe', oldValue: existing, why: why || null });
     if (!skipIdempotency && opType && machine && dateStr) {
       markIdempotent(opType, machine, dateStr, cell, value);
     }
@@ -244,6 +265,7 @@ async function writeCell(sheets, tab, cell, value, options = {}) {
     requestBody: { values: [[value]] },
   });
   console.log('[sheets_writer] WRITE ' + tab + '!' + cell + ' = ' + value);
+  if (store?.actions) store.actions.push({ kind: 'writeCell', range: tab + '!' + cell, value, opType, machine, dateStr, written: true, oldValue, why: why || null });
   
   if (!skipIdempotency && opType && machine && dateStr) {
     markIdempotent(opType, machine, dateStr, cell, value);
@@ -364,7 +386,7 @@ async function applyPendingItem(item, sheets, overrideValue, options = {}) {
     if (item.type === 'fuel_price') {
       await appendToRawData('CORRECTION', 'FuelPrice', 'K2', oldValue, val, messageId, conversationId);
     }
-    try { auditLog({ kind: 'message', messageId: options?.messageId, conversationId: options?.conversationId, rawText, summary: 'processed', actions: _auditActions }); } catch(e) {}
+    // applyPendingItem is invoked from confirmation flow; decisions are already audited by the caller.
     return;
   }
   if (item.op === 'fuel_dip') {

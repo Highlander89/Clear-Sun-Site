@@ -154,6 +154,19 @@ function logMessage(msg) {
     try {
         const enriched = enrich(entry);
         fs.appendFileSync(ENRICHED_FILE, JSON.stringify(enriched) + '\n');
+
+        // Audit every received message (even if later ignored)
+        try {
+          auditLog({
+            kind: 'wa_received',
+            ts: enriched.ts,
+            messageId: enriched.message_id,
+            conversationId: entry.from,
+            rawText: enriched.text,
+            summary: 'received from WhatsApp',
+          });
+        } catch (e) {}
+
         return enriched;
     } catch (e) {
         log(`Enrichment error: ${e.message}`);
