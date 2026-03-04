@@ -61,6 +61,7 @@ function log(msg) {
 // --- Heap monitoring (enable with HEAP_LOG=1) ---
 let _activeHeapTimer = null;
 let _activeSock = null;
+let _digestTimer = null; // M4: avoid leaking multiple digest intervals on reconnect
 if (process.env.HEAP_LOG === '1') {
     _activeHeapTimer = setInterval(() => {
         const m = process.memoryUsage();
@@ -129,7 +130,8 @@ async function appendToSheets(enriched, msg) {
 
 async function connectToWhatsApp() {
     // Clean up previous socket and intervals to prevent listener/memory accumulation
-    if (_activeHeapTimer) { clearInterval(_activeHeapTimer); _activeHeapTimer = null; }
+    // NOTE: do NOT clear heap timer; it is process-wide and would otherwise stop monitoring after reconnects.
+    if (_digestTimer) { try { clearInterval(_digestTimer); } catch(e) {} _digestTimer = null; }
     if (_activeSock) { try { _activeSock.ev.removeAllListeners(); } catch(e) {} }
 
     const { state, saveCreds } = await useMultiFileAuthState(SESSION_DIR);
@@ -283,7 +285,8 @@ Bot is currently connected again.`;
     }
 
     function startDailyDigestLoop() {
-        const _digestTimer = setInterval(async () => {
+        if (_digestTimer) return; // already running
+        _digestTimer = setInterval(async () => {
         const nowDt = new Date();
 
         // ── Weekly reminders ──────────────────────────────────────────────
@@ -574,12 +577,24 @@ Bot is currently connected again.`;
                 log('Manual alert error: ' + e.message)
             }
         }
+            const sastNow = new Date(nowDt.toLocaleString('en-US', { timeZone: 'Africa/Johannesburg' }));
+            if (sastNow.getHours() !== DIGEST_HOUR) return
+            if (sastNow.getMinutes() !== 0) return
 
-            const sastForDigest = new Date(nowDt.toLocaleString('en-US', { timeZone: 'Africa/Johannesburg' }));
-            if (sastForDigest.getHours() !== DIGEST_HOUR) return
-            if (sastForDigest.getMinutes() !== 0) return
+            // Daily Service/Fuel Alert to group (independent of digest delivery)
+            if (shouldRunToday('dailyServiceAlert')) {
+                try {
+                    const alertMsg = await buildServiceAlert()
+                    await sock.sendMessage(TARGET_GROUP, { text: alertMsg })
+                    markRanToday('dailyServiceAlert')
+                    log('✅ Service/fuel alert sent to group')
+                } catch (e) {
+                    log('Service alert error: ' + e.message)
+                }
+            }
+
+            // Daily digest to personal number (optional)
             if (!shouldRunToday('dailyDigest')) return
-
             const rows = readJsonl(ENRICHED_FILE)
             const digest = buildDailyDigest(rows, nowDt)
             const jid = waJidFromNumber(ALERT_TO)
@@ -587,20 +602,11 @@ Bot is currently connected again.`;
                 await sock.sendMessage(jid, { text: digest })
                 markRanToday('dailyDigest')
                 log('✅ Daily digest sent')
-                // Service & fuel alert to group
-                try {
-                    const alertMsg = await buildServiceAlert()
-                    if (alertMsg) {
-                        await sock.sendMessage(TARGET_GROUP, { text: alertMsg })
-                        log('✅ Service/fuel alert sent to group')
-                    }
-                } catch (e) {
-                    log('Service alert error: ' + e.message)
-                }
             } catch (e) {
                 log(`Daily digest send failed: ${e.message}`)
             }
         }, 60 * 1000)
+        if (_digestTimer && _digestTimer.unref) _digestTimer.unref();
     }
 
     sock.ev.on('messages.upsert', async ({ messages, type }) => {
@@ -772,7 +778,15 @@ async function buildServiceAlert() {
     if (!isNaN(fuelLitres) && fuelLitres > 0 && fuelLitres < 20000)
         alerts.push('\u26FD *Fuel stock LOW* \u2014 ' + fuelLitres.toLocaleString('en-ZA') + 'L remaining');
 
-    if (!alerts.length) return null;
     const dateStr = new Date().toLocaleDateString('en-ZA', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'Africa/Johannesburg' });
-    return '*\u{1F514} Clearsun Daily Alert \u2014 ' + dateStr + '*\n\n' + alerts.join('\n');
+    const header = '*\u{1F514} Clearsun Daily Alert \u2014 ' + dateStr + '*';
+
+    const fuelLine = (!isNaN(fuelLitres) && fuelLitres > 0)
+      ? ('\u26FD Fuel stock: ' + fuelLitres.toLocaleString('en-ZA') + 'L')
+      : '\u26FD Fuel stock: (unknown)';
+
+    if (!alerts.length) {
+      return header + '\n\n\u2705 No machines overdue or within 50h to service.\n' + fuelLine;
+    }
+    return header + '\n\n' + alerts.join('\n') + '\n\n' + fuelLine;
 }
