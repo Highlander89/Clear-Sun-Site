@@ -3,7 +3,15 @@ import { useEffect, useState, useCallback } from 'react';
 
 interface ServiceAlert { type: string; machine: string; hoursToService: number; severity: string; message: string; }
 interface FuelAlert { type: string; severity: string; message: string; stockOnHand: number; }
-interface Health { botStatus: string; uptimeSeconds: number; lastMessageTs: string | null; queueDepth: number; restartCount?: number; heapMb?: number; }
+interface Health {
+  botStatus: string;
+  uptimeSeconds: number;
+  lastMessageTs: string | null;
+  queueDepth: number;
+  restartCount?: number;
+  heapMb?: number;
+  idempotencyLedger?: { total: number; valid: number; expired: number; lastUpdated: string | null };
+}
 interface LastServiceAlertSent { ts: number; messageId: string | null; date: string; }
 
 function fmt(s: number) {
@@ -68,6 +76,8 @@ export default function AlertsPage() {
               { label: 'Uptime', value: fmt(health.uptimeSeconds), color: 'text-slate-200' },
               { label: 'Queue Depth', value: String(health.queueDepth ?? '—'), color: (health.queueDepth ?? 0) > 0 ? 'text-amber-400' : 'text-emerald-400' },
               { label: 'Last Message', value: health.lastMessageTs ? new Date(health.lastMessageTs).toLocaleTimeString('en-ZA') : 'None', color: 'text-slate-200' },
+              { label: 'Idempotency Ledger', value: (health.idempotencyLedger ? String(health.idempotencyLedger.valid) : '0') + ' keys', color: 'text-slate-200' },
+              { label: 'Ledger Updated', value: health.idempotencyLedger?.lastUpdated ? new Date(health.idempotencyLedger.lastUpdated).toLocaleTimeString('en-ZA') : '—', color: 'text-slate-200' },
               { label: '08:00 Alert', value: lastServiceAlertSent ? new Date(lastServiceAlertSent.ts).toLocaleString('en-ZA', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : 'Never', color: lastServiceAlertSent ? 'text-emerald-400' : 'text-slate-400' },
             ].map(s => (
               <div key={s.label} className="px-5 py-4 text-center">
