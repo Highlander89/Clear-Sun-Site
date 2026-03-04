@@ -526,23 +526,44 @@ async function applyFuelDip(sheets, sast, litres, alertFn) {
     valueInputOption: 'RAW', requestBody: { values: [[normDateStr, litres]] },
   }, 'Production Summary!B' + nextRow + ':C' + nextRow);
 
-  // Stock on hand sync + diff logging
+  // Stock on hand: Production Summary!F47 is a *formula* (C47 + D47 - E47).
+  // A diesel dip is an observed stock take and should update the *baseline* (C47),
+  // NOT overwrite the F47 formula going forward.
   let prevStock = null;
+  let f47 = null;
   try {
     const stockR = await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: 'Production Summary!F47' });
-    const raw = stockR.data.values?.[0]?.[0];
-    if (raw != null && raw !== '') prevStock = parseFloat(String(raw).replace(/[^0-9.-]/g, ''));
+    f47 = stockR.data.values?.[0]?.[0];
+    if (f47 != null && f47 !== '' && !String(f47).trim().startsWith('=')) {
+      prevStock = parseFloat(String(f47).replace(/[^0-9.-]/g, ''));
+    }
   } catch(e) {}
 
-  const diff = (prevStock == null || Number.isNaN(prevStock)) ? '' : (litres - prevStock);
-
-  if (prevStock != null && !Number.isNaN(prevStock) && litres != null && litres != prevStock) {
-    await valuesUpdate(sheets, {
-      spreadsheetId: SHEET_ID, range: 'Production Summary!F47',
-      valueInputOption: 'RAW', requestBody: { values: [[litres]] },
-    }, 'Production Summary!F47');
-    console.log('[sheets_writer] STOCK ON HAND updated: F47=' + litres + ' (was ' + prevStock + ')');
+  // If F47 was accidentally overwritten previously, restore the formula.
+  try {
+    if (f47 != null && f47 !== '' && !String(f47).trim().startsWith('=')) {
+      await valuesUpdate(sheets, {
+        spreadsheetId: SHEET_ID,
+        range: 'Production Summary!F47',
+        valueInputOption: 'USER_ENTERED',
+        requestBody: { values: [['=C47 + D47 - E47']] },
+      }, 'Production Summary!F47');
+      console.log('[sheets_writer] Restored Production Summary!F47 formula (=C47 + D47 - E47)');
+    }
+  } catch(e) {
+    console.log('[sheets_writer] Failed to restore F47 formula: ' + e.message);
   }
+
+  // Update baseline stock take
+  await valuesUpdate(sheets, {
+    spreadsheetId: SHEET_ID,
+    range: 'Production Summary!C47',
+    valueInputOption: 'RAW',
+    requestBody: { values: [[litres]] },
+  }, 'Production Summary!C47');
+  console.log('[sheets_writer] STOCK TAKE (dip) written: C47=' + litres);
+
+  const diff = (prevStock == null || Number.isNaN(prevStock)) ? '' : (litres - prevStock);
 
   if (diff !== '') {
     await valuesUpdate(sheets, {
