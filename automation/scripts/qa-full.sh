@@ -57,9 +57,9 @@ PY
 
   echo
   echo "### HTTP checks"
-  curl -sS -I --max-time 10 http://51.20.84.35:3002 | head -5
-  curl -sS -I --max-time 10 http://51.20.84.35:3002/login | head -5
-  curl -sS --max-time 10 http://51.20.84.35:3002/api/health | head -c 300; echo
+  curl -sS -I --max-time 20 http://127.0.0.1 | head -5
+  curl -sS -I --max-time 20 http://127.0.0.1/login | head -5
+  curl -sS --max-time 20 http://127.0.0.1/api/health | head -c 300; echo
 
   echo
   echo "## Spec presence"
