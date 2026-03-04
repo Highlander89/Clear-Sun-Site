@@ -731,6 +731,12 @@ function validateBulkMessage(text) {
         if (VALID_MACHINE_CODES.has(code)) {
           validMachineCount++;
         } else {
+          // Allow retired/ignored machines to appear in bulk messages without blocking the whole write.
+          // Example: "BULLD 01" (retired) — ignore the line, still process the rest.
+          const rawCode = m[1].replace(/\s+/g, ' ').trim().toUpperCase();
+          if (rawCode === 'BULLD 01' || rawCode === 'BULLD 001' || rawCode === 'BULLD01' || rawCode === 'BULLD001') {
+            continue;
+          }
           invalidMachines.push(m[1]);
         }
       }
