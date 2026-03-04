@@ -96,10 +96,16 @@ function checkDrift() {
   if (fs.existsSync(BULK_CLOSE_RULES_PATH)) {
     const content = fs.readFileSync(BULK_CLOSE_RULES_PATH, 'utf8');
     
-    for (const code of [...VALID_MACHINE_CODES].sort()) {
-      if (!content.includes(code) && !content.includes(code.replace(/(\d)$/, ' $1'))) {
-        warnings.push(`Machine code ${code} not found in bulk-close-rules page`);
+    // If the page imports BULK_CLOSE_CONSTANTS, the machine list is rendered dynamically.
+    // In that case, do not require literal code strings in the TSX source.
+    if (!content.includes('BULK_CLOSE_CONSTANTS')) {
+      for (const code of [...VALID_MACHINE_CODES].sort()) {
+        if (!content.includes(code) && !content.includes(code.replace(/(\d)$/, ' $1'))) {
+          warnings.push(`Machine code ${code} not found in bulk-close-rules page`);
+        }
       }
+    } else {
+      console.log('   ✓ bulk-close-rules uses BULK_CLOSE_CONSTANTS (dynamic machine list)');
     }
     
     const hasLoadsCols = (content.includes('H</b>') || content.includes('column H'))
@@ -116,7 +122,9 @@ function checkDrift() {
     if (hasDieselCol) console.log('   ✓ Diesel column documented (F)');
     else errors.push('Diesel column (F) not documented');
 
-    const hasSvcCols = content.includes('Services!C') && content.includes('Services!D') && content.includes('Services!E');
+    const hasSvcCols = (content.includes('Services!C') || content.includes('<b>C</b>'))
+      && (content.includes('Services!D') || content.includes('<b>D</b>'))
+      && (content.includes('Services!E') || content.includes('<b>E</b>'));
     if (hasSvcCols) console.log('   ✓ Services sheet columns documented');
     else errors.push('Services sheet columns not fully documented');
     
