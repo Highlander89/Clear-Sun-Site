@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from 'react';
 interface ServiceAlert { type: string; machine: string; hoursToService: number; severity: string; message: string; }
 interface FuelAlert { type: string; severity: string; message: string; stockOnHand: number; }
 interface Health { botStatus: string; uptimeSeconds: number; lastMessageTs: string | null; queueDepth: number; restartCount?: number; heapMb?: number; }
+interface LastServiceAlertSent { ts: number; messageId: string | null; date: string; }
 
 function fmt(s: number) {
   const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60);
@@ -21,6 +22,7 @@ export default function AlertsPage() {
   const [health, setHealth] = useState<Health | null>(null);
   const [loading, setLoading] = useState(true);
   const [lastRefresh, setLastRefresh] = useState<Date>(new Date());
+  const [lastServiceAlertSent, setLastServiceAlertSent] = useState<LastServiceAlertSent | null>(null);
 
   const load = useCallback(() => {
     Promise.all([
@@ -32,6 +34,7 @@ export default function AlertsPage() {
       );
       setServiceAlerts(sorted);
       setFuelAlerts(alerts.fuelAlerts || []);
+      setLastServiceAlertSent(alerts.lastServiceAlertSent || null);
       setHealth(h);
       setLoading(false);
       setLastRefresh(new Date());
@@ -59,12 +62,13 @@ export default function AlertsPage() {
           <h2 className="text-sm font-semibold text-slate-300 uppercase tracking-wider">📡 Pipeline Health</h2>
         </div>
         {health ? (
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-0 divide-x divide-slate-700">
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-0 divide-x divide-slate-700">
             {[
               { label: 'Bot Status', value: health.botStatus, color: health.botStatus === 'online' ? 'text-emerald-400' : 'text-red-400' },
               { label: 'Uptime', value: fmt(health.uptimeSeconds), color: 'text-slate-200' },
               { label: 'Queue Depth', value: String(health.queueDepth ?? '—'), color: (health.queueDepth ?? 0) > 0 ? 'text-amber-400' : 'text-emerald-400' },
               { label: 'Last Message', value: health.lastMessageTs ? new Date(health.lastMessageTs).toLocaleTimeString('en-ZA') : 'None', color: 'text-slate-200' },
+              { label: '08:00 Alert', value: lastServiceAlertSent ? new Date(lastServiceAlertSent.ts).toLocaleString('en-ZA', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : 'Never', color: lastServiceAlertSent ? 'text-emerald-400' : 'text-slate-400' },
             ].map(s => (
               <div key={s.label} className="px-5 py-4 text-center">
                 <div className="text-xs text-slate-500 uppercase tracking-wider mb-1">{s.label}</div>

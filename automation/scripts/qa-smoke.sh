@@ -17,7 +17,13 @@ mkdir -p "$OUT_DIR"
   node -c sheets_writer.js
   node -c ocr_service_sheet.js
   node -c ecosystem.config.js
+  node -c queue.js
+  node -c idempotency_ledger.js
   echo "OK"
+
+  echo
+  echo "## Drift check (bulk-close-rules)"
+  node /home/ubuntu/clearsun-wa/scripts/drift-check.js || true
 
   echo
   echo "## PM2 status"

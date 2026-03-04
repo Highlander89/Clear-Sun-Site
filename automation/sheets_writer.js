@@ -8,6 +8,9 @@ const { google } = require('googleapis');
 const SHEET_ID = process.env.SHEET_ID || '1yd_Zd2akUwSNoN0pHH0qLsmAT7Mxg7Nw81qYIulD-W4';
 const TOKEN_PATH = '/home/ubuntu/.openclaw/workspace/scripts/clearsun/token.json';
 const SECRET_PATH = '/home/ubuntu/.openclaw/workspace/scripts/clearsun/client_secret.json';
+const RAWDATA_SCRIPT = '/home/ubuntu/.openclaw/workspace/scripts/clearsun/clearsun_append_rawdata.sh';
+
+const { checkIdempotency, checkAdditiveIdempotency, markIdempotent, markAdditiveIdempotent } = require('./idempotency_ledger');
 
 // Tab map: code → exact sheet tab name
 const TAB_MAP = {
@@ -69,6 +72,54 @@ function getSheets() {
   const auth = new google.auth.OAuth2(creds.client_id, creds.client_secret, creds.redirect_uris[0]);
   auth.setCredentials(tokens);
   return google.sheets({ version: 'v4', auth });
+}
+
+function getSASTDateStr(ts) {
+  const d = new Date(ts);
+  const sast = new Date(d.getTime() + 2 * 3600 * 1000);
+  const h = sast.getUTCHours();
+  if (h < 5) sast.setUTCDate(sast.getUTCDate() - 1);
+  return sast.getUTCDate() + '/' + (sast.getUTCMonth() + 1) + '/' + sast.getUTCFullYear();
+}
+
+const { execFile } = require('child_process');
+
+async function appendToRawData(type, machine, field, oldValue, newValue, messageId, conversationId) {
+  return new Promise((resolve, reject) => {
+    const direction = 'correction';
+    const fromName = `${type}:${machine}:${field}`;
+    const fromNumber = messageId || '';
+    const text = `CORRECTION|${machine}|${field}|${oldValue || ''}|${newValue}|${getSASTDateStr(new Date().toISOString())}`;
+    const convId = conversationId || '';
+
+    execFile(RAWDATA_SCRIPT, [direction, fromName, fromNumber, text, convId], { timeout: 30000 }, (err, stdout, stderr) => {
+      if (err) {
+        console.log('[sheets_writer] RawData append failed: ' + err.message + ' ' + (stderr || ''));
+        return reject(err);
+      }
+      if (stdout) console.log('[sheets_writer] RawData append: ' + stdout.trim());
+      return resolve(true);
+    });
+  });
+}
+
+async function appendInvalidBulkClose(rawText, errorReason, messageId, conversationId) {
+  return new Promise((resolve, reject) => {
+    const direction = 'invalid_bulk';
+    const fromName = 'BULK_CLOSE_VALIDATION_FAILED';
+    const fromNumber = messageId || '';
+    const text = `INVALID_BULK|${errorReason}|${(rawText || '').slice(0, 500)}`;
+    const convId = conversationId || '';
+
+    execFile(RAWDATA_SCRIPT, [direction, fromName, fromNumber, text, convId], { timeout: 30000 }, (err, stdout, stderr) => {
+      if (err) {
+        console.log('[sheets_writer] Invalid bulk close append failed: ' + err.message);
+        return reject(err);
+      }
+      if (stdout) console.log('[sheets_writer] Invalid bulk close logged: ' + stdout.trim());
+      return resolve(true);
+    });
+  });
 }
 
 function getSASTDate(ts) {
@@ -159,13 +210,27 @@ async function readCell(sheets, tab, cell) {
   } catch(e) { return null; }
 }
 
-async function writeCell(sheets, tab, cell, value) {
-  // Dedup: read first
+async function writeCell(sheets, tab, cell, value, options = {}) {
+  const { skipIdempotency = false, opType, machine, dateStr } = options;
+  
+  if (!skipIdempotency && opType && machine && dateStr) {
+    const check = checkIdempotency(opType, machine, dateStr, cell);
+    if (check.alreadyWritten && String(check.existingValue) === String(value)) {
+      console.log('[sheets_writer] SKIP (idempotent) ' + tab + '!' + cell + ' = ' + value);
+      return false;
+    }
+  }
+
   const existing = await readCell(sheets, tab, cell);
   if (existing !== null && existing !== '' && String(existing) === String(value)) {
     console.log('[sheets_writer] SKIP (dupe) ' + tab + '!' + cell + ' = ' + value);
+    if (!skipIdempotency && opType && machine && dateStr) {
+      markIdempotent(opType, machine, dateStr, cell, value);
+    }
     return false;
   }
+  
+  const oldValue = existing;
   await valuesUpdate(sheets, {
     spreadsheetId: SHEET_ID,
     range: "'" + tab + "'!" + cell,
@@ -173,7 +238,12 @@ async function writeCell(sheets, tab, cell, value) {
     requestBody: { values: [[value]] },
   });
   console.log('[sheets_writer] WRITE ' + tab + '!' + cell + ' = ' + value);
-  return true;
+  
+  if (!skipIdempotency && opType && machine && dateStr) {
+    markIdempotent(opType, machine, dateStr, cell, value);
+  }
+  
+  return { written: true, oldValue };
 }
 
 function colLetter(idx) {
@@ -266,15 +336,28 @@ function needsConfirm(type, value) {
   return false;
 }
 
-async function applyPendingItem(item, sheets, overrideValue) {
+async function applyPendingItem(item, sheets, overrideValue, options = {}) {
+  const { messageId, conversationId } = options;
   const val = overrideValue != null ? overrideValue : item.value;
+  const dateStr = getSASTDateStr(item.ts || new Date().toISOString());
+  
   if (item.op === 'set') {
+    let oldValue = null;
+    try {
+      const cur = await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: item.range });
+      oldValue = cur.data.values?.[0]?.[0] ?? null;
+    } catch(e) {}
+    
     await valuesUpdate(sheets, {
       spreadsheetId: SHEET_ID,
       range: item.range,
       valueInputOption: 'RAW',
       requestBody: { values: [[val]] },
     }, item.range);
+    
+    if (item.type === 'fuel_price') {
+      await appendToRawData('CORRECTION', 'FuelPrice', 'K2', oldValue, val, messageId, conversationId);
+    }
     return;
   }
   if (item.op === 'fuel_dip') {
@@ -283,7 +366,6 @@ async function applyPendingItem(item, sheets, overrideValue) {
     return;
   }
   if (item.op === 'add') {
-    // For additive writes: read current, add, then set
     const cur = await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: item.range });
     const raw = cur.data.values?.[0]?.[0];
     const curVal = raw == null || raw === '' ? 0 : (parseFloat(String(raw).replace(/[^0-9.-]/g,'')) || 0);
@@ -294,10 +376,17 @@ async function applyPendingItem(item, sheets, overrideValue) {
       valueInputOption: 'RAW',
       requestBody: { values: [[total]] },
     }, item.range);
+    
+    if (item.type === 'diesel_issue') {
+      const machineMatch = item.range.match(/'([^']+)'!F/);
+      const machine = machineMatch ? machineMatch[1] : 'unknown';
+      await appendToRawData('CORRECTION', machine, 'diesel', curVal, total, messageId, conversationId);
+    }
   }
 }
 
-async function handleConfirmationCommands(text, alertFn, sheets) {
+async function handleConfirmationCommands(text, alertFn, sheets, options = {}) {
+  const { messageId, conversationId } = options;
   const state = purgePending(loadPending());
   const okM = text.match(/^OK\s+([a-f0-9]{8})$/i);
   const implicitM = text.match(/^(?:no|nope|sorry|correction|correct)\b[\s\S]*?(\d+(?:[.,]\d+)?)\s*(?:litres?|liters?|l)\b/i);
@@ -312,7 +401,7 @@ async function handleConfirmationCommands(text, alertFn, sheets) {
     if (recent.length === 1) {
       const item = recent[0];
       const override = parseFloat(implicitM[1].replace(',', '.'));
-      await applyPendingItem(item, sheets, override);
+      await applyPendingItem(item, sheets, override, { messageId, conversationId });
       state.items = (state.items || []).filter(it => it.id !== item.id);
       savePending(state);
       if (alertFn) await alertFn('✅ Applied correction: diesel_issue = ' + override + ' (' + item.id + ')');
@@ -330,7 +419,7 @@ async function handleConfirmationCommands(text, alertFn, sheets) {
   if (corrM1) override = parseFloat(corrM1[2].replace(',', '.'));
   if (corrM2) override = parseFloat(corrM2[1].replace(',', '.'));
 
-  await applyPendingItem(item, sheets, override);
+  await applyPendingItem(item, sheets, override, { messageId, conversationId });
   state.items = (state.items || []).filter(it => it.id !== id);
   savePending(state);
 
@@ -600,7 +689,81 @@ function isBulkMessage(text) {
   return hourLines.length >= 3; // 3+ machine lines = bulk message
 }
 
-async function writeMessageToSheets(enriched, rawText, alertFn) {
+const VALID_MACHINE_CODES = new Set([
+  'FEL001', 'FEL002', 'FEL003', 'FEL004', 'FEL005',
+  'ADT001', 'ADT002', 'ADT003', 'ADT004', 'ADT005', 'ADT006',
+  'EXC001', 'EXC002', 'EXC003', 'EXC004', 'EXC005',
+  'GEN001', 'GEN002', 'GEN003', 'GEN004', 'GEN005',
+  'SCRN002', 'DOZ001', 'BULLD12',
+]);
+
+function validateBulkMessage(text) {
+  const lines = text.split(/\n/).map(l => l.trim()).filter(Boolean);
+  const errors = [];
+  let section = 'hours';
+  let validMachineCount = 0;
+  let invalidMachines = [];
+
+  for (const line of lines) {
+    const lu = line.toUpperCase();
+    if (/^QUARRY/i.test(lu)) { section = 'quarry'; continue; }
+    if (/^TAILING/i.test(lu)) { section = 'tailings'; continue; }
+    if (/SCREEN.?MAT|SRCEEN.?MAT/i.test(lu)) { section = 'screen'; continue; }
+    if (/^DIESEL\b/i.test(lu)) { section = 'diesel'; continue; }
+
+    if (section === 'hours') {
+      const m = line.match(/^((?:(?:FEL|ADT|EXC|GEN|SCRN|DOZ)\s*\d{3}|BULLD\s*\d{1,3})(?:\s*\d+)?)[\s:]+([\d,]+)(?:[\s\(]+([\d,]+))?/i);
+      if (m) {
+        let code = m[1].replace(/\s+/g, ' ').toUpperCase().trim();
+        if (/^BULLD\s*\d+$/i.test(code)) {
+          const n = parseInt(code.replace(/[^0-9]/g, ''), 10);
+          code = 'BULLD ' + (n < 10 ? String(n).padStart(2, '0') : String(n));
+        }
+        code = code.replace(/\s+/g, '');
+        if (VALID_MACHINE_CODES.has(code)) {
+          validMachineCount++;
+        } else {
+          invalidMachines.push(m[1]);
+        }
+      }
+    } else if (section === 'quarry' || section === 'tailings' || section === 'screen') {
+      const m = line.match(/^(ADT\s*\d{3})\s*(?:=|:)\s*([\d]+(?:[.,]\d+)?)/i);
+      if (m) {
+        let code = m[1].replace(/\s+/g, '').toUpperCase();
+        if (VALID_MACHINE_CODES.has(code)) {
+          validMachineCount++;
+        } else {
+          invalidMachines.push(m[1]);
+        }
+      }
+    } else if (section === 'diesel') {
+      const m = line.match(/^((?:FEL|ADT|EXC|GEN|SCRN|DOZ)\s*\d{3})[\s:]+(\d+(?:[.,]\d+)?)/i);
+      if (m) {
+        let code = m[1].replace(/\s+/g, '').toUpperCase();
+        if (VALID_MACHINE_CODES.has(code)) {
+          validMachineCount++;
+        } else {
+          invalidMachines.push(m[1]);
+        }
+      }
+    }
+  }
+
+  if (validMachineCount === 0) {
+    errors.push('No valid machine codes found in message');
+  }
+  if (invalidMachines.length > 0) {
+    errors.push('Invalid machine codes: ' + [...new Set(invalidMachines)].join(', '));
+  }
+
+  return {
+    isValid: errors.length === 0,
+    errors,
+    validMachineCount,
+  };
+}
+
+async function writeMessageToSheets(enriched, rawText, alertFn, options = {}) {
   console.log('[sheets_writer] ENTRY rawText=' + JSON.stringify((rawText||'').slice(0,80)));
   if (!rawText || !rawText.trim()) { console.log('[sheets_writer] SKIP: empty rawText'); return; }
   const text = normalizeInputText(rawText.trim());
@@ -610,13 +773,33 @@ async function writeMessageToSheets(enriched, rawText, alertFn) {
   const sheets = getSheets();
   await ensureServicesHeaderDate(sheets, sast);
 
+  const messageId = enriched?.message_id || options?.messageId || '';
+  const conversationId = enriched?.conversationId || options?.conversationId || '';
+
   // Confirmation commands (OK/CORRECT)
-  if (await handleConfirmationCommands(text, alertFn, sheets)) return;
+  if (await handleConfirmationCommands(text, alertFn, sheets, { messageId, conversationId })) return;
 
   const norm = text.toLowerCase();
 
   // ── BULK MULTI-MACHINE MESSAGE ────────────────────────────────────────────
   if (isBulkMessage(text)) {
+    const validation = validateBulkMessage(text);
+    
+    if (!validation.isValid) {
+      const errorMsg = '⚠️ Bulk close format error: ' + validation.errors.join('; ') + '. Raw data logged, no writes performed.';
+      console.log('[sheets_writer] BULK VALIDATION FAILED: ' + validation.errors.join('; '));
+      
+      await appendInvalidBulkClose(
+        rawText, 
+        validation.errors.join('; '), 
+        enriched?.message_id, 
+        enriched?.conversationId
+      );
+      
+      if (alertFn) await alertFn(errorMsg);
+      return;
+    }
+    
     const written = await processBulkMessage(text, sheets, sast);
     console.log('[sheets_writer] BULK message: wrote ' + written + ' cells');
     if (alertFn && written > 0) await alertFn('✅ Bulk update processed: ' + written + ' entries written to sheet.');
@@ -869,4 +1052,12 @@ async function writeMessageToSheets(enriched, rawText, alertFn) {
   }
 }
 
-module.exports = { writeMessageToSheets, sheetsWriteCall, valuesUpdate };
+module.exports = { 
+  writeMessageToSheets, 
+  sheetsWriteCall, 
+  valuesUpdate,
+  validateBulkMessage,
+  appendToRawData,
+  appendInvalidBulkClose,
+  getSASTDateStr,
+};

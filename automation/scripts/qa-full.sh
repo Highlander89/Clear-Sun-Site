@@ -19,6 +19,9 @@ mkdir -p "$OUT_DIR"
   node -c sheets_writer.js
   node -c ocr_service_sheet.js
   node -c ecosystem.config.js
+  node -c queue.js
+  node -c idempotency_ledger.js
+  node -c scripts/drift-check.js
 
   echo
   echo "### Control-char scan (sheets_writer.js)"
@@ -42,6 +45,27 @@ PY
   echo
   echo "### Reconnect dampening hooks present"
   rg -n "reconnectAttempt|disconnectWindow|RECONNECT_MAX_MS|pendingChurnAlert" /home/ubuntu/clearsun-wa/index.js || true
+
+  echo
+  echo "### Idempotency ledger present"
+  rg -n "checkIdempotency|markIdempotent|LEDGER_TTL" /home/ubuntu/clearsun-wa/sheets_writer.js || true
+  rg -n "idempotency_ledger" /home/ubuntu/clearsun-wa/sheets_writer.js || true
+
+  echo
+  echo "### Bulk close validator present"
+  rg -n "validateBulkMessage|appendInvalidBulkClose" /home/ubuntu/clearsun-wa/sheets_writer.js || true
+
+  echo
+  echo "### CORRECT audit trail present"
+  rg -n "appendToRawData.*CORRECTION" /home/ubuntu/clearsun-wa/sheets_writer.js || true
+
+  echo
+  echo "### Heap threshold guard present"
+  rg -n "HEAP_THRESHOLD_MB|heapHighConsecutive" /home/ubuntu/clearsun-wa/index.js || true
+
+  echo
+  echo "### Drift check (bulk-close-rules vs code)"
+  node /home/ubuntu/clearsun-wa/scripts/drift-check.js || true
 
   echo
   echo "### PM2 restart + log tail"

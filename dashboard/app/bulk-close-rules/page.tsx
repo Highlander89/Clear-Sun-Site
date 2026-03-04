@@ -1,4 +1,8 @@
+import { BULK_CLOSE_CONSTANTS } from './constants';
+
 export default function BulkCloseRulesPage() {
+  const codes = BULK_CLOSE_CONSTANTS.VALID_MACHINE_CODES.join(', ');
+
   return (
     <div style={{ padding: 24, fontFamily: 'system-ui', lineHeight: 1.45 }}>
       <h1 style={{ fontSize: 28, fontWeight: 700 }}>Bulk Close: How the Bot Interprets Your Message</h1>
@@ -6,6 +10,10 @@ export default function BulkCloseRulesPage() {
         This page documents the exact parsing rules for the end-of-day “bulk closing” WhatsApp message so the team can
         predict where values will land in the sheet.
       </p>
+
+      <div style={{ marginTop: 10, opacity: 0.8, maxWidth: 1000 }}>
+        <b>Derived constants:</b> valid machine codes = <code>{codes}</code>
+      </div>
 
       <h2 style={{ fontSize: 20, fontWeight: 700, marginTop: 24 }}>1) Message structure</h2>
       <ul>

@@ -58,17 +58,70 @@ function log(msg) {
 }
 
 
-// --- Heap monitoring (enable with HEAP_LOG=1) ---
+// --- Heap monitoring with threshold guard ---
 let _activeHeapTimer = null;
 let _activeSock = null;
-let _digestTimer = null; // M4: avoid leaking multiple digest intervals on reconnect
-if (process.env.HEAP_LOG === '1') {
+let _digestTimer = null;
+let _heapHighConsecutive = 0;
+let _lastHeapRestart = 0;
+
+// Use % of current heapTotal (not max-old-space-size) because heapUsed/heapTotal is what trends upward.
+const HEAP_THRESHOLD_PCT = parseFloat(process.env.HEAP_THRESHOLD_PCT || '92');
+const HEAP_HIGH_COUNT_THRESHOLD = parseInt(process.env.HEAP_HIGH_COUNT_THRESHOLD || '3', 10);
+const HEAP_CHECK_INTERVAL_MS = parseInt(process.env.HEAP_CHECK_INTERVAL_MS || String(5 * 60 * 1000), 10);
+const HEAP_RESTART_COOLDOWN_MS = parseInt(process.env.HEAP_RESTART_COOLDOWN_MS || String(30 * 60 * 1000), 10);
+
+function startHeapMonitoring() {
+    if (_activeHeapTimer) return;
+
     _activeHeapTimer = setInterval(() => {
         const m = process.memoryUsage();
-        log('[HEAP] heapUsed=' + (m.heapUsed/1048576).toFixed(2) + 'MB heapTotal=' + (m.heapTotal/1048576).toFixed(2) + 'MB rss=' + (m.rss/1048576).toFixed(2) + 'MB external=' + (m.external/1048576).toFixed(2) + 'MB arrayBuffers=' + (m.arrayBuffers/1048576).toFixed(2) + 'MB');
-    }, 10 * 60 * 1000); // every 10 minutes
-    _activeHeapTimer.unref(); // don't keep process alive
+        const heapUsedMB = m.heapUsed / 1048576;
+        const heapTotalMB = m.heapTotal / 1048576;
+        const rssMB = m.rss / 1048576;
+        const heapPct = heapTotalMB > 0 ? (heapUsedMB / heapTotalMB) * 100 : 0;
+
+        const isHeapHigh = heapPct >= HEAP_THRESHOLD_PCT;
+
+        log('[HEAP] heapUsed=' + heapUsedMB.toFixed(2) + 'MB heapTotal=' + heapTotalMB.toFixed(2) + 'MB rss=' + rssMB.toFixed(2) + 'MB heapPct=' + heapPct.toFixed(1) + '% thresholdPct=' + HEAP_THRESHOLD_PCT + '% consecutive=' + _heapHighConsecutive);
+
+        if (isHeapHigh) {
+            _heapHighConsecutive++;
+
+            if (_heapHighConsecutive >= HEAP_HIGH_COUNT_THRESHOLD) {
+                const now = Date.now();
+                if (now - _lastHeapRestart > HEAP_RESTART_COOLDOWN_MS) {
+                    log('[HEAP] Sustained high heap% detected - attempting GC then controlled restart');
+                    _lastHeapRestart = now;
+                    _heapHighConsecutive = 0;
+
+                    try {
+                        if (global.gc) {
+                            global.gc();
+                            log('[HEAP] gc() triggered pre-restart');
+                        }
+                    } catch (e) {
+                        log('[HEAP] gc() failed: ' + e.message);
+                    }
+
+                    try {
+                        const { execSync } = require('child_process');
+                        execSync('pm2 restart clearsun-wa', { stdio: 'inherit' });
+                    } catch(e) {
+                        log('[HEAP] Failed to restart via pm2: ' + e.message);
+                    }
+                }
+            }
+        } else {
+            _heapHighConsecutive = 0;
+        }
+    }, HEAP_CHECK_INTERVAL_MS);
+
+    // Do not keep process alive solely for heap logger.
+    if (_activeHeapTimer && _activeHeapTimer.unref) _activeHeapTimer.unref();
 }
+
+startHeapMonitoring();
 // --- End heap monitoring ---
 
 function loadAlertState() {
@@ -585,8 +638,17 @@ Bot is currently connected again.`;
             if (shouldRunToday('dailyServiceAlert')) {
                 try {
                     const alertMsg = await buildServiceAlert()
-                    await sock.sendMessage(TARGET_GROUP, { text: alertMsg })
+                    const sentResult = await sock.sendMessage(TARGET_GROUP, { text: alertMsg })
                     markRanToday('dailyServiceAlert')
+                    
+                    const state = loadAlertState();
+                    state['lastServiceAlertSent'] = {
+                        ts: Date.now(),
+                        messageId: sentResult?.key?.id || null,
+                        date: new Date().toISOString()
+                    };
+                    saveAlertState(state);
+                    
                     log('✅ Service/fuel alert sent to group')
                 } catch (e) {
                     log('Service alert error: ' + e.message)
@@ -692,7 +754,7 @@ Bot is currently connected again.`;
                     const alertFn = async (alertMsg) => {
                         try { await sock.sendMessage(TARGET_GROUP, { text: alertMsg }); } catch(e) {}
                     };
-                    const _swResult = await writeMessageToSheets(enriched, rawText, alertFn);
+                    const _swResult = await writeMessageToSheets(enriched, rawText, alertFn, { messageId: msgId, conversationId: msg?.key?.remoteJid || '' });
                     // Only mark sent if write succeeded (not explicitly false/undefined-from-empty)
                     if (msgId && _swResult !== false) markSent('sw:' + msgId);
                     else if (_swResult === false) log('[sheets_writer] WRITE FAILED — not marking sent, will retry on next message');
