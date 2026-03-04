@@ -66,7 +66,8 @@ let _digestTimer = null;
 let _heapHighConsecutive = 0;
 let _lastHeapRestart = 0;
 
-// Use % of current heapTotal (not max-old-space-size) because heapUsed/heapTotal is what trends upward.
+// Use % of V8 heap size limit (close to --max-old-space-size), not heapTotal.
+// heapTotal is "currently allocated" and can stay small, which causes false high % readings.
 const HEAP_THRESHOLD_PCT = parseFloat(process.env.HEAP_THRESHOLD_PCT || '92');
 const HEAP_HIGH_COUNT_THRESHOLD = parseInt(process.env.HEAP_HIGH_COUNT_THRESHOLD || '3', 10);
 const HEAP_CHECK_INTERVAL_MS = parseInt(process.env.HEAP_CHECK_INTERVAL_MS || String(5 * 60 * 1000), 10);
@@ -77,14 +78,19 @@ function startHeapMonitoring() {
 
     _activeHeapTimer = setInterval(() => {
         const m = process.memoryUsage();
+        const v8 = require('v8');
+        const hs = v8.getHeapStatistics();
+        const heapLimitMB = (hs.heap_size_limit || 0) / 1048576;
+
         const heapUsedMB = m.heapUsed / 1048576;
         const heapTotalMB = m.heapTotal / 1048576;
         const rssMB = m.rss / 1048576;
-        const heapPct = heapTotalMB > 0 ? (heapUsedMB / heapTotalMB) * 100 : 0;
 
+        // Prefer limit-based percentage; fall back to heapTotal if heap_size_limit is unavailable.
+        const heapPct = heapLimitMB > 0 ? (heapUsedMB / heapLimitMB) * 100 : (heapTotalMB > 0 ? (heapUsedMB / heapTotalMB) * 100 : 0);
         const isHeapHigh = heapPct >= HEAP_THRESHOLD_PCT;
 
-        log('[HEAP] heapUsed=' + heapUsedMB.toFixed(2) + 'MB heapTotal=' + heapTotalMB.toFixed(2) + 'MB rss=' + rssMB.toFixed(2) + 'MB heapPct=' + heapPct.toFixed(1) + '% thresholdPct=' + HEAP_THRESHOLD_PCT + '% consecutive=' + _heapHighConsecutive);
+        log('[HEAP] heapUsed=' + heapUsedMB.toFixed(2) + 'MB heapTotal=' + heapTotalMB.toFixed(2) + 'MB heapLimit=' + (heapLimitMB ? heapLimitMB.toFixed(2) : 'n/a') + 'MB rss=' + rssMB.toFixed(2) + 'MB heapPct=' + heapPct.toFixed(1) + '% thresholdPct=' + HEAP_THRESHOLD_PCT + '% consecutive=' + _heapHighConsecutive);
 
         if (isHeapHigh) {
             _heapHighConsecutive++;
