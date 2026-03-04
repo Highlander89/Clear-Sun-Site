@@ -27,7 +27,32 @@ export async function GET() {
       queueDepth = q.length;
     } catch { /* ok */ }
 
-    return NextResponse.json({ botStatus, uptimeSeconds, lastMessageTs, queueDepth });
+    // Idempotency ledger stats (for exactly-once writes)
+    // NOTE: do not `require()` absolute paths (Next/Turbopack tries to bundle them).
+    // Read the ledger JSON directly from disk instead.
+    let idempotencyLedger: any = null;
+    try {
+      const p = '/home/ubuntu/clearsun-wa/.idempotency-ledger.json';
+      const j = JSON.parse(fs.readFileSync(p, 'utf8'));
+      const entries = j.entries || {};
+      const now = Date.now();
+      const ttlMs = 7 * 24 * 60 * 60 * 1000;
+      let valid = 0;
+      let expired = 0;
+      for (const k of Object.keys(entries)) {
+        const ts = entries[k]?.ts;
+        if (ts && (now - ts <= ttlMs)) valid++;
+        else expired++;
+      }
+      idempotencyLedger = {
+        total: Object.keys(entries).length,
+        valid,
+        expired,
+        lastUpdated: j.updatedAt || null,
+      };
+    } catch { /* ok */ }
+
+    return NextResponse.json({ botStatus, uptimeSeconds, lastMessageTs, queueDepth, idempotencyLedger });
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e);
     return NextResponse.json({ error: msg }, { status: 500 });
