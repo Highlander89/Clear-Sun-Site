@@ -629,10 +629,13 @@ async function processBulkMessage(text, sheets, sast) {
       const m = line.match(/^((?:(?:FEL|ADT|EXC|GEN|SCRN|DOZ)\s*\d{3}|BULLD\s*\d{1,3})(?:\s*\d+)?)[\s:]+([\d,]+)(?:[\s\(]+([\d,]+))?/i);
       if (!m) continue;
       let code = m[1].replace(/\s+/g,' ').toUpperCase().trim();
-      // Normalize BULLD 12 / BULLD12 / BULLD 1 => match TAB_MAP_BULK keys
+      // Normalize BULLD values:
+      // - BULLD 12 → "BULLD 12"
+      // - BULLD 001 / BULLD 1 → treat as DOZ 001 tab, but the bulk key is "BULLD 001"
       if (/^BULLD\s*\d+$/i.test(code)) {
         const n = parseInt(code.replace(/[^0-9]/g,''), 10);
-        code = 'BULLD ' + (n < 10 ? String(n).padStart(2,'0') : String(n));
+        if (n === 1) code = 'BULLD 001';
+        else code = 'BULLD ' + (n < 10 ? String(n).padStart(2,'0') : String(n));
       }
       const closing = parseFloat(m[2].replace(/,/g,''));
       const nextSvc = m[3] ? parseFloat(m[3].replace(/,/g,'')) : null;
@@ -673,10 +676,13 @@ async function processBulkMessage(text, sheets, sast) {
       const m = line.match(/^(ADT\s*\d{3})\s*(?:=|:)\s*([\d]+(?:[.,]\d+)?)/i);
       if (!m) continue;
       let code = m[1].replace(/\s+/g,' ').toUpperCase().trim();
-      // Normalize BULLD 12 / BULLD12 / BULLD 1 => match TAB_MAP_BULK keys
+      // Normalize BULLD values:
+      // - BULLD 12 → "BULLD 12"
+      // - BULLD 001 / BULLD 1 → treat as DOZ 001 tab, but the bulk key is "BULLD 001"
       if (/^BULLD\s*\d+$/i.test(code)) {
         const n = parseInt(code.replace(/[^0-9]/g,''), 10);
-        code = 'BULLD ' + (n < 10 ? String(n).padStart(2,'0') : String(n));
+        if (n === 1) code = 'BULLD 001';
+        else code = 'BULLD ' + (n < 10 ? String(n).padStart(2,'0') : String(n));
       }
       const val = parseFloat(m[2].replace(',', '.')); // supports half loads like 0,5
       const tab = TAB_MAP_BULK[code];
@@ -728,15 +734,11 @@ function validateBulkMessage(text) {
           code = 'BULLD ' + (n < 10 ? String(n).padStart(2, '0') : String(n));
         }
         code = code.replace(/\s+/g, '');
+        // Treat BULLD001 as the DOZ001 tab (Frederick: "Bulld001 in the sheet is named Doz 001").
+        if (code === 'BULLD01' || code === 'BULLD001') code = 'DOZ001';
         if (VALID_MACHINE_CODES.has(code)) {
           validMachineCount++;
         } else {
-          // Allow retired/ignored machines to appear in bulk messages without blocking the whole write.
-          // Example: "BULLD 01" (retired) — ignore the line, still process the rest.
-          const rawCode = m[1].replace(/\s+/g, ' ').trim().toUpperCase();
-          if (rawCode === 'BULLD 01' || rawCode === 'BULLD 001' || rawCode === 'BULLD01' || rawCode === 'BULLD001') {
-            continue;
-          }
           invalidMachines.push(m[1]);
         }
       }
