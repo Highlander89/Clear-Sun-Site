@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 
-type OpResult = { ok: boolean; message: string; data?: any };
+type OpResult = { ok: boolean; message: string; data?: unknown };
 
 type Health = {
   botStatus: string;
@@ -40,8 +40,8 @@ export default function OperatorPage() {
       });
       const j = await r.json();
       setLast(j);
-    } catch (e: any) {
-      setLast({ ok: false, message: e?.message || String(e) });
+    } catch (e: unknown) {
+      setLast({ ok: false, message: e instanceof Error ? e.message : String(e) });
     } finally {
       setBusy(null);
       refresh();

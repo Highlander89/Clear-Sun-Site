@@ -9,8 +9,8 @@ type AuditRow = {
   conversationId?: string;
   rawText?: string;
   summary?: string;
-  actions?: any[];
-  result?: any;
+  actions?: unknown[];
+  result?: unknown;
 };
 
 export default function AuditPage() {
@@ -24,8 +24,8 @@ export default function AuditPage() {
       if (!r.ok) throw new Error(j?.error || 'failed');
       setRows(j.rows || []);
       setErr(null);
-    } catch (e: any) {
-      setErr(e?.message || String(e));
+    } catch (e: unknown) {
+      setErr(e instanceof Error ? e.message : String(e));
     }
   }
 
@@ -64,7 +64,7 @@ export default function AuditPage() {
             {(r.actions && r.actions.length > 0) && (
               <pre style={{ marginTop: 10, background: '#0b1020', color: '#e5e7eb', padding: 10, borderRadius: 10, overflowX: 'auto' }}>{JSON.stringify(r.actions, null, 2)}</pre>
             )}
-            {r.result && (
+            {r.result != null && (
               <pre style={{ marginTop: 10, background: '#0b1020', color: '#e5e7eb', padding: 10, borderRadius: 10, overflowX: 'auto' }}>{JSON.stringify(r.result, null, 2)}</pre>
             )}
           </div>

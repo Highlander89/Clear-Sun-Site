@@ -30,7 +30,12 @@ export async function GET() {
     // Idempotency ledger stats (for exactly-once writes)
     // NOTE: do not `require()` absolute paths (Next/Turbopack tries to bundle them).
     // Read the ledger JSON directly from disk instead.
-    let idempotencyLedger: any = { total: 0, valid: 0, expired: 0, lastUpdated: null };
+    let idempotencyLedger: { total: number; valid: number; expired: number; lastUpdated: string | null } = {
+      total: 0,
+      valid: 0,
+      expired: 0,
+      lastUpdated: null,
+    };
     try {
       const p = '/home/ubuntu/clearsun-wa/.idempotency-ledger.json';
       const j = JSON.parse(fs.readFileSync(p, 'utf8'));

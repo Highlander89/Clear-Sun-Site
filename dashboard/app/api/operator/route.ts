@@ -2,11 +2,11 @@ import { NextResponse } from 'next/server';
 import { execSync } from 'child_process';
 import fs from 'fs';
 
-function ok(message: string, data?: any) {
+function ok(message: string, data?: unknown) {
   return NextResponse.json({ ok: true, message, data });
 }
 
-function fail(message: string, data?: any) {
+function fail(message: string, data?: unknown) {
   return NextResponse.json({ ok: false, message, data }, { status: 500 });
 }
 
@@ -47,7 +47,7 @@ export async function POST(req: Request) {
     }
 
     return fail('Unknown action: ' + action);
-  } catch (e: any) {
-    return fail(e?.message || String(e));
+  } catch (e: unknown) {
+    return fail(e instanceof Error ? e.message : String(e));
   }
 }
