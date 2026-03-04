@@ -102,29 +102,23 @@ function checkDrift() {
       }
     }
     
-    if (content.includes('column H') && content.includes('column J') && content.includes('column K')) {
-      console.log('   ✓ Load columns documented (H, J, K)');
-    } else {
-      errors.push('Load columns (H, J, K) not fully documented');
-    }
-    
-    if (content.includes('column D') && content.includes('D35')) {
-      console.log('   ✓ Hours columns documented (D, D35)');
-    } else {
-      errors.push('Hours columns (D, D35) not fully documented');
-    }
-    
-    if (content.includes('column F')) {
-      console.log('   ✓ Diesel column documented (F)');
-    } else {
-      errors.push('Diesel column (F) not documented');
-    }
-    
-    if (content.includes('Services!C') && content.includes('Services!D') && content.includes('Services!E')) {
-      console.log('   ✓ Services sheet columns documented');
-    } else {
-      errors.push('Services sheet columns not fully documented');
-    }
+    const hasLoadsCols = (content.includes('H</b>') || content.includes('column H'))
+      && (content.includes('J</b>') || content.includes('column J'))
+      && (content.includes('K</b>') || content.includes('column K'));
+    if (hasLoadsCols) console.log('   ✓ Load columns documented (H, J, K)');
+    else errors.push('Load columns (H, J, K) not fully documented');
+
+    const hasHoursCols = (content.includes('D</b>') || content.includes('column D')) && content.includes('D35');
+    if (hasHoursCols) console.log('   ✓ Hours columns documented (D, D35)');
+    else errors.push('Hours columns (D, D35) not fully documented');
+
+    const hasDieselCol = (content.includes('F</b>') || content.includes('column F'));
+    if (hasDieselCol) console.log('   ✓ Diesel column documented (F)');
+    else errors.push('Diesel column (F) not documented');
+
+    const hasSvcCols = content.includes('Services!C') && content.includes('Services!D') && content.includes('Services!E');
+    if (hasSvcCols) console.log('   ✓ Services sheet columns documented');
+    else errors.push('Services sheet columns not fully documented');
     
     if (content.includes('250') && content.includes('500')) {
       console.log('   ✓ Service intervals documented');
