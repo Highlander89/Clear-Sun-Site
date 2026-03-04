@@ -5,7 +5,7 @@ const CLEARSUN_JOBS = [
   { name: "Replay Queue + Stability Check", schedule: "Hourly", status: "ok", description: "Replays any queued messages that failed initial Sheets append. Reports heap usage and restart count." },
   { name: "Daily PM2 Restart", schedule: "03:00 SAST", status: "ok", description: "Routine restart to manage heap memory. Prevents OOM crashes during business hours." },
   { name: "Nightly Backup to SAPCONET", schedule: "21:00 SAST", status: "ok", description: "Tarballs all spec files, memory, source code, and dashboard pages to ~/clearsun-backups/ on SAPCONET." },
-  { name: "Daily Service/Fuel Alert", schedule: "08:00 SAST", status: "ok", description: "Alerts WA group: machines overdue for service, machines ≤50h to service, fuel stock < 20,000L." },
+  { name: "Daily Service/Fuel Alert", schedule: "08:00 SAST", status: "ok", description: "Posts to WA group at 08:00: overdue machines (F<0), ≤50h warnings, and fuel stock. Always posts (even if all-clear) and is independent of the personal daily digest." },
   { name: "Weekly Production Report", schedule: "Saturday 14:00 SAST", status: "ok", description: "ROM tons, loads by material type, hours summary. Source: individual machine tab daily rows (Mon–Sat)." },
   { name: "Monthly Production Summary", schedule: "1st of month 08:00 SAST", status: "ok", description: "Fuel used, fuel cost, replacement cost, ROM tons, loads breakdown (Quarry/Screen/Tailings)." },
   { name: "Oil Stock Take Reminder", schedule: "2nd of month 09:00 SAST", status: "ok", description: "Reminds to do oil stock taking. Lists machines due within 150h of next service." },
