@@ -53,10 +53,25 @@
    - Run **Drift-check** if rules vs dashboard seem inconsistent.
    - Run **QA smoke** after changes/restarts.
 
-### Monthly / when the month rolls over
-10) **Expect hours/month-total cells to shift**
-   - Month boundaries can affect summary cells.
-   - If dashboard totals look wrong on the 1st/2nd, escalate (sheet formulas and month rollups are the usual culprit).
+### Monthly / when the month rolls over (NEW MONTH PROCEDURE)
+10) **Confirm the sheet month changed cleanly (Day 1–2 checklist)**
+   - Open `/production` and sanity-check that **month-to-date totals** (hours + loads) make sense.
+   - Spot-check at least 2 machines directly in the Sheet:
+     - Machine tab: verify the new month section is being written to the correct rows.
+     - Cell `E35` (month hours total) is resetting/rolling correctly for the new month.
+   - If `E35` (or any month summary cells) look wrong on the 1st/2nd, escalate immediately — it’s usually a **sheet formula / month roll-over** issue, not the bot.
+
+11) **Services sheet header date**
+   - The bot automatically updates `Services!E1` to today’s date before writing.
+   - On the 1st of the month, confirm `Services!E1` is current and the service due math still makes sense.
+
+12) **If month roll-over breaks reporting**
+   - Do NOT keep resending the same WhatsApp message.
+   - Notify supervisor/engineer, and include:
+     - which machine(s)
+     - what you sent
+     - what cell(s) are wrong
+     - screenshot of the relevant sheet area
 
 ---
 
@@ -81,7 +96,44 @@ The bot writes into an existing operational Google Sheet.
 
 ---
 
-## 2) Message formats the bot accepts (operator-facing)
+## 2) Which messages update which tabs/cells (operator cheat-sheet)
+
+This section is the most important for training: it tells you **what the bot will update** when you send a given message.
+
+### 2.1 Machine tabs (one tab per machine)
+For a machine code like `ADT001`, the bot writes to that machine’s own tab (example names vary, but mapping is fixed in code).
+
+**Machine tab columns (per-day rows):**
+- **Hours (closing hours)** → column **D** (`D{dayRow}`)
+- **Diesel issued (litres)** → column **F** (`F{dayRow}`)
+- **Loads (Quarry / Screen / Tailings)** → columns **H / J / K** (`H{dayRow}`, `J{dayRow}`, `K{dayRow}`)
+- The bot **never writes to column L** (reserved/formula/zero column).
+
+### 2.2 Services tab
+Messages that affect services do **not** update machine tabs; they update `Services`:
+- Last service hours → `Services!C{svcRow}`
+- Next service due hours → `Services!D{svcRow}`
+- The bot also ensures `Services!E1` is today’s date before service operations.
+
+### 2.3 RawData tab (audit stream)
+The bot appends an audit row to `RawData` for:
+- invalid bulk closes (RawData only)
+- CORRECT operations
+- other audit-worthy events
+
+### 2.4 What message types do what
+- **Hours message** (e.g. `ADT 001 1234`) → Machine tab **D{dayRow}**
+- **Loads message** (e.g. `ADT 001 Q 12 S 5 T 0`) → Machine tab **H/J/K{dayRow}**
+- **Diesel issue message** (e.g. `DIESEL / ADT 001 235L`) → Machine tab **F{dayRow}**
+- **Diesel dip message** (stock-on-hand) → writes dip + syncs stock-on-hand row and diff (see logic dashboard)
+- **Bulk closing message** (multi-line) → updates multiple machine tabs (hours/loads/diesel) in one message *if valid*
+- **OK / CORRECT** → applies a previously-held pending write (only when the bot asked you to confirm)
+
+> Exact machine-code-to-tab-name mapping is maintained in the bot and drift-checked against the dashboard docs.
+
+---
+
+## 3) Message formats the bot accepts (operator-facing)
 
 > The goal is: operators can send quick, unambiguous messages; the bot normalizes and parses them.
 
