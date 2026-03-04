@@ -9,6 +9,8 @@ const nav = [
   { href: '/production', label: 'Production', icon: '📊' },
   { href: '/messages', label: 'Message Log', icon: '💬' },
   { href: '/alerts', label: 'Alerts', icon: '🔔' },
+  { href: '/operator', label: 'Operator Mode', icon: '🛠️' },
+  { href: '/audit', label: 'Audit Trail', icon: '🧾' },
   { href: '/logic', label: 'Sheet Logic', icon: '📐' },
   { href: '/bulk-close-rules', label: 'Bulk Close Rules', icon: '📘' },
   { href: '/exceptions', label: 'Exceptions', icon: '⚠️' },
