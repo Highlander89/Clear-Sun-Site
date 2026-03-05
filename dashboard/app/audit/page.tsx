@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 
 type AuditRow = {
   ts: string;
@@ -16,47 +16,65 @@ type AuditRow = {
 export default function AuditPage() {
   const [rows, setRows] = useState<AuditRow[]>([]);
   const [err, setErr] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [lastRefresh, setLastRefresh] = useState<Date | null>(null);
 
-  async function load() {
+  const load = useCallback(async () => {
+    setLoading(true);
     try {
       const r = await fetch('/api/audit?limit=200', { cache: 'no-store' });
       const j = await r.json();
       if (!r.ok) throw new Error(j?.error || 'failed');
       setRows(j.rows || []);
       setErr(null);
+      setLastRefresh(new Date());
     } catch (e: unknown) {
       setErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setLoading(false);
     }
-  }
+  }, []);
 
   useEffect(() => {
     load();
     const t = setInterval(load, 15000);
     return () => clearInterval(t);
-  }, []);
+  }, [load]);
 
   return (
     <div style={{ padding: 24, fontFamily: 'system-ui' }}>
-      <h1 style={{ fontSize: 28, fontWeight: 700 }}>Audit Trail (Decisions per message)</h1>
-      <p style={{ opacity: 0.85 }}>
-        Every bot decision: what it parsed, what it wrote, and why (idempotency keys included).
-      </p>
+      <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
+        <div>
+          <h1 style={{ fontSize: 28, fontWeight: 700, margin: 0 }}>Audit Trail (Decisions per message)</h1>
+          <p style={{ opacity: 0.6, margin: '4px 0 0', fontSize: 13 }}>
+            Every bot decision: what it parsed, what it wrote, and why (idempotency keys included).
+            {lastRefresh && (
+              <span style={{ marginLeft: 12, color: '#94a3b8' }}>
+                Last refreshed: {lastRefresh.toLocaleTimeString('en-ZA')}
+              </span>
+            )}
+          </p>
+        </div>
+      </div>
 
-      {err && <pre style={{ color: 'crimson' }}>{err}</pre>}
+      {err && <pre style={{ color: 'crimson', marginTop: 8 }}>{err}</pre>}
 
-      <div style={{ display: 'flex', gap: 10, margin: '12px 0', flexWrap: 'wrap' }}>
+      <div style={{ display: 'flex', gap: 10, margin: '12px 0', flexWrap: 'wrap', alignItems: 'center' }}>
         <button
           onClick={load}
+          disabled={loading}
           style={{
             padding: '8px 12px',
             borderRadius: 10,
             border: '1px solid #334155',
-            background: '#0f172a',
-            color: '#e2e8f0',
+            background: loading ? '#1e293b' : '#0f172a',
+            color: loading ? '#64748b' : '#e2e8f0',
             fontWeight: 700,
+            cursor: loading ? 'wait' : 'pointer',
+            transition: 'all 0.15s',
           }}
         >
-          Refresh
+          {loading ? '⟳ Loading…' : '↺ Refresh'}
         </button>
         <a
           href="/operator"
@@ -88,6 +106,7 @@ export default function AuditPage() {
         >
           Download JSON
         </a>
+        <span style={{ fontSize: 12, color: '#475569', marginLeft: 4 }}>Auto-refreshes every 15s</span>
       </div>
 
       <div style={{ display: 'grid', gap: 10 }}>
@@ -95,7 +114,7 @@ export default function AuditPage() {
           <div key={idx} style={{ border: '1px solid #e5e7eb', borderRadius: 10, padding: 12 }}>
             <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'baseline' }}>
               <div style={{ fontWeight: 800 }}>{r.kind}</div>
-              <div style={{ opacity: 0.75 }}>{new Date(r.ts).toLocaleString()}</div>
+              <div style={{ opacity: 0.75 }}>{new Date(r.ts).toLocaleString('en-ZA', { timeZone: 'Africa/Johannesburg' })}</div>
               {r.messageId && <code>msg:{r.messageId}</code>}
             </div>
             {r.summary && <div style={{ marginTop: 6, opacity: 0.9 }}>{r.summary}</div>}

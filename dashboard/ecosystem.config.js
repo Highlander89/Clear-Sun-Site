@@ -1,9 +1,9 @@
 module.exports = {
   apps: [{
     name: 'clearsun-dashboard',
-    script: 'node_modules/.bin/next',
+    script: '/home/ubuntu/clearsun-dashboard/node_modules/.bin/next',
     args: 'start',
-    cwd: '/home/ubuntu/clearsun-dashboard',
+    cwd: '/home/ubuntu/clearsun-dashboard/dashboard',
     env: {
       PORT: '3002',
       NODE_ENV: 'production'
