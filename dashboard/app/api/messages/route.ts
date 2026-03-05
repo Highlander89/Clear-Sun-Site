@@ -10,13 +10,23 @@ export async function GET(req: Request) {
 
     const raw = fs.readFileSync(JSONL, 'utf8');
     const lines = raw.trim().split('\n').filter(Boolean);
-    const slice = lines.slice(-limit).reverse();
 
-    const messages = slice
-      .map(line => {
-        try { return JSON.parse(line); } catch { return null; }
-      })
+    // Parse all lines newest-first, deduplicate by message_id, then take limit
+    const allParsed = lines
+      .slice()
+      .reverse()
+      .map(line => { try { return JSON.parse(line); } catch { return null; } })
       .filter(Boolean);
+
+    const seen = new Set<string>();
+    const deduped = allParsed.filter(m => {
+      const key = m.message_id || m.ts + '|' + (m.text || '');
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+
+    const messages = deduped.slice(0, limit);
 
     // Return a stable shape for the UI
     return NextResponse.json({ messages, count: messages.length });
