@@ -24,7 +24,8 @@ export default function MessagesPage() {
 
   const load = useCallback(() => {
     fetch('/api/messages?limit=100').then(r => r.json()).then(d => {
-      setMsgs((d.messages || []).reverse());
+      // API already returns newest-first; no reverse needed
+      setMsgs(d.messages || []);
       setLoading(false);
       setLastRefresh(new Date());
     }).catch(() => setLoading(false));
