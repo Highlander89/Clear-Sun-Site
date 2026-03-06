@@ -5,9 +5,11 @@ const path = require('path');
 const SHEETS_WRITER_PATH = path.join(__dirname, '../sheets_writer.js');
 // Deployed layout: dashboard lives at /home/ubuntu/clearsun-dashboard
 // Repo layout: dashboard/ inside this monorepo.
-const BULK_CLOSE_RULES_PATH = fs.existsSync('/home/ubuntu/clearsun-dashboard/app/bulk-close-rules/page.tsx')
-  ? '/home/ubuntu/clearsun-dashboard/app/bulk-close-rules/page.tsx'
-  : path.join(__dirname, '../../dashboard/app/bulk-close-rules/page.tsx');
+const BULK_CLOSE_RULES_PATH = fs.existsSync('/home/ubuntu/clearsun-dashboard/dashboard/app/bulk-close-rules/page.tsx')
+  ? '/home/ubuntu/clearsun-dashboard/dashboard/app/bulk-close-rules/page.tsx'
+  : (fs.existsSync('/home/ubuntu/clearsun-dashboard/app/bulk-close-rules/page.tsx')
+      ? '/home/ubuntu/clearsun-dashboard/app/bulk-close-rules/page.tsx'
+      : path.join(__dirname, '../../dashboard/app/bulk-close-rules/page.tsx'));
 
 const VALID_MACHINE_CODES = new Set([
   'FEL001', 'FEL002', 'FEL003', 'FEL004', 'FEL005',

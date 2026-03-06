@@ -1,7 +1,14 @@
 import { NextResponse } from 'next/server';
 import { getSheets, parseNum } from '@/app/lib/sheets';
 
+const cache = new Map<string, { data: unknown; ts: number }>();
+const CACHE_TTL = 5 * 60 * 1000;
+
 export async function GET() {
+  const cached = cache.get('fuel');
+  if (cached && Date.now() - cached.ts < CACHE_TTL) {
+    return NextResponse.json(cached.data);
+  }
   try {
     const { sheets, SHEET_ID } = getSheets();
     const [summary, price, dips] = await Promise.all([
@@ -21,7 +28,9 @@ export async function GET() {
     const dailyBurn = litresUsed && dipHistory.length > 1
       ? litresUsed / Math.max(dipHistory.length, 1) : null;
     const daysRemaining = (stockOnHand && dailyBurn && dailyBurn > 0) ? Math.floor(stockOnHand / dailyBurn) : null;
-    return NextResponse.json({ openingStock, litresRefuelled, litresUsed, stockOnHand, pricePerLitre, dipHistory, dailyBurn, daysRemaining });
+    const result = { openingStock, litresRefuelled, litresUsed, stockOnHand, pricePerLitre, dipHistory, dailyBurn, daysRemaining };
+    cache.set('fuel', { data: result, ts: Date.now() });
+    return NextResponse.json(result);
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e);
     return NextResponse.json({ error: msg }, { status: 500 });

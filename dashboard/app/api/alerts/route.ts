@@ -4,7 +4,14 @@ import fs from 'fs';
 
 const ALERT_STATE_FILE = '/home/ubuntu/clearsun-wa/.alert-state.json';
 
+const cache = new Map<string, { data: unknown; ts: number }>();
+const CACHE_TTL = 5 * 60 * 1000;
+
 export async function GET() {
+  const cached = cache.get('alerts');
+  if (cached && Date.now() - cached.ts < CACHE_TTL) {
+    return NextResponse.json(cached.data);
+  }
   try {
     const { sheets, SHEET_ID } = getSheets();
     const [svcData, fuelData] = await Promise.all([
@@ -32,7 +39,9 @@ export async function GET() {
       lastServiceAlertSent = alertState.lastServiceAlertSent || null;
     } catch {}
     
-    return NextResponse.json({ serviceAlerts, fuelAlerts, totalCount: serviceAlerts.length + fuelAlerts.length, lastServiceAlertSent });
+    const result = { serviceAlerts, fuelAlerts, totalCount: serviceAlerts.length + fuelAlerts.length, lastServiceAlertSent };
+    cache.set('alerts', { data: result, ts: Date.now() });
+    return NextResponse.json(result);
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e);
     return NextResponse.json({ error: msg }, { status: 500 });

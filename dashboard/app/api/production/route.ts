@@ -1,7 +1,14 @@
 import { NextResponse } from 'next/server';
 import { getSheets, TAB_MAP, ADT_PAYLOADS, parseNum } from '@/app/lib/sheets';
 
+const cache = new Map<string, { data: unknown; ts: number }>();
+const CACHE_TTL = 5 * 60 * 1000;
+
 export async function GET() {
+  const cached = cache.get('production');
+  if (cached && Date.now() - cached.ts < CACHE_TTL) {
+    return NextResponse.json(cached.data);
+  }
   try {
     const { sheets, SHEET_ID } = getSheets();
     const psData = await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: 'Production Summary!B5:L28' });
@@ -27,10 +34,12 @@ export async function GET() {
         } catch { return { code, tabName, hoursThisMonth: null }; }
       })
     );
-    return NextResponse.json({
+    const result = {
       adtLoads,
       machineHours: machineHours.map(r => r.status === 'fulfilled' ? r.value : null).filter(Boolean),
-    });
+    };
+    cache.set('production', { data: result, ts: Date.now() });
+    return NextResponse.json(result);
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e);
     return NextResponse.json({ error: msg }, { status: 500 });

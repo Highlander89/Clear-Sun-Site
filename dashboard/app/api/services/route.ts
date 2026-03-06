@@ -1,7 +1,14 @@
 import { NextResponse } from 'next/server';
 import { getSheets } from '@/app/lib/sheets';
 
+const cache = new Map<string, { data: unknown; ts: number }>();
+const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
 export async function GET() {
+  const cached = cache.get('services');
+  if (cached && Date.now() - cached.ts < CACHE_TTL) {
+    return NextResponse.json(cached.data);
+  }
   try {
     const { sheets, SHEET_ID } = getSheets();
     const r = await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: 'Services!A4:F30' });
@@ -24,6 +31,7 @@ export async function GET() {
         serviceInterval,
       };
     }).filter(r => r.machineName);
+    cache.set('services', { data, ts: Date.now() });
     return NextResponse.json(data);
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e);

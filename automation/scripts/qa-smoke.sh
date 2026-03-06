@@ -31,8 +31,9 @@ mkdir -p "$OUT_DIR"
 
   echo
   echo "## Dashboard quick health"
-  curl -sS -I --max-time 20 http://51.20.84.35:3002 | head -5
-  curl -sS --max-time 20 http://51.20.84.35:3002/api/health | head -c 300; echo
+  DASHBOARD_PUBLIC_BASE=${DASHBOARD_PUBLIC_BASE:-"http://$(curl -s --max-time 3 https://checkip.amazonaws.com || echo 127.0.0.1):3002"}
+  curl -sS -I --max-time 20 "$DASHBOARD_PUBLIC_BASE" | head -5
+  curl -sS --max-time 20 "$DASHBOARD_PUBLIC_BASE/api/health" | head -c 300; echo
 
   echo
   echo "## Queue summary"
